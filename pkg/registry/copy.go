@@ -13,4 +13,14 @@
   limitations under the License.
 */
 
-package layout
+package registry
+
+import (
+	"context"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+)
+
+func Copy(ctx context.Context, dst Pusher, src Fetcher, desc ocispec.Descriptor) error {
+	return nil
+}

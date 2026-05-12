@@ -19,11 +19,13 @@ import (
 	"fmt"
 	"os"
 
-	packer "github.com/arenadata/oci-packer"
+	"github.com/arenadata/oci-packer"
 	"github.com/arenadata/oci-packer/internal/version"
+	packerhttp "github.com/arenadata/oci-packer/pkg/http"
 	"github.com/arenadata/oci-packer/pkg/registry/remote"
 
 	"github.com/containerd/log"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -36,6 +38,11 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
+	log.L.Logger.SetFormatter(&logrus.TextFormatter{
+		TimestampFormat: "20060102150405",
+		FullTimestamp:   true,
+	})
+
 	rootCmd.PersistentFlags().StringP("login", "l", "", "Login to registry.")
 	rootCmd.PersistentFlags().StringP("password", "p", "", "Password to use when connecting to registry.")
 	rootCmd.PersistentFlags().Bool("plain-http", false, "Allow insecure connections to registry without TLS.")
@@ -60,23 +67,37 @@ func packRun(cmd *cobra.Command, args []string) {
 	file, _ := cmd.Flags().GetString("file")
 	tmpDir, _ := cmd.Flags().GetString("tmp-dir")
 	plainHttp, _ := cmd.Flags().GetBool("plain-http")
+	login, _ := cmd.Flags().GetString("login")
+	password, _ := cmd.Flags().GetString("password")
 
 	packManifest, err := packer.LoadFromFile(file)
 	if err != nil {
 		log.L.Fatal(err)
 	}
 
-	builder, err := packManifest.Build(cmd.Context(), packer.WithTmpDir(tmpDir))
+	var opts []remote.Option
+	if plainHttp {
+		opts = append(opts, remote.WithPlainHttp())
+	}
+
+	if len(login) > 0 {
+		packerClient := packerhttp.New(packerhttp.WithAuthCreds(func(string) (string, string, error) {
+			return login, password, nil
+		}))
+		opts = append(opts, remote.WithClient(packerClient))
+	}
+
+	repoClient, err := remote.New(ref, opts...)
 	if err != nil {
 		log.L.Fatal(err)
 	}
 
-	resolver, err := remote.New(ref, plainHttp)
+	desc, err := packManifest.Pack(cmd.Context(), repoClient, packer.WithTmpDir(tmpDir))
 	if err != nil {
 		log.L.Fatal(err)
 	}
 
-	if _, err = builder.Push(cmd.Context(), resolver.Pusher()); err != nil {
+	if err = repoClient.SetTag(cmd.Context(), desc); err != nil {
 		log.L.Fatal(err)
 	}
 }

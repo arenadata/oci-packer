@@ -16,14 +16,10 @@
 package remote
 
 import (
-	"context"
-	"io"
-	"net/http"
 	"net/url"
 	"path"
 	"strings"
 
-	"github.com/arenadata/oci-packer/pkg/registry/client"
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
 
 	"github.com/opencontainers/go-digest"
@@ -94,20 +90,4 @@ func (r registryUrl) mount(mount digest.Digest, from string) string {
 	u := r.uploadsUrl()
 	u.RawQuery = val.Encode()
 	return u.String()
-}
-
-func newGetRequest(ctx context.Context, url string) (*http.Request, error) {
-	return client.NewRequest(ctx, http.MethodGet, url, nil)
-}
-
-func newHeadRequest(ctx context.Context, url string) (*http.Request, error) {
-	return client.NewRequest(ctx, http.MethodHead, url, nil)
-}
-
-func newPostRequest(ctx context.Context, url string, body io.Reader) (*http.Request, error) {
-	return client.NewRequest(ctx, http.MethodPost, url, body)
-}
-
-func newPutRequest(ctx context.Context, url string, body io.Reader) (*http.Request, error) {
-	return client.NewRequest(ctx, http.MethodPut, url, body)
 }

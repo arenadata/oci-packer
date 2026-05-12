@@ -24,24 +24,25 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/arenadata/oci-packer/pkg/registry/client"
-	"github.com/arenadata/oci-packer/pkg/utils"
+	packerhttp "github.com/arenadata/oci-packer/pkg/http"
 
 	remoteerror "github.com/containerd/containerd/v2/core/remotes/errors"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 const (
-	OciScheme    = "oci://"
-	DirSchema    = "dir://"
-	FileSchema   = "file://"
-	S3Schema     = "s3://"
-	S3httpSchema = "s3+http://"
+	OciScheme       = "oci://"
+	OciLayoutScheme = "layout://"
+	DockerScheme    = "docker://"
+	DirSchema       = "dir://"
+	FileSchema      = "file://"
+	S3Schema        = "s3://"
+	S3httpSchema    = "s3+http://"
 )
 
 type ConvertHandler func(context.Context) ([]Descriptor, error)
 
-func FileHandler(desc Descriptor) ConvertHandler {
+func fileHandler(desc Descriptor) ConvertHandler {
 	return func(context.Context) (descriptors []Descriptor, err error) {
 		from := strings.TrimPrefix(desc.From, FileSchema)
 		st, err := os.Stat(from)
@@ -54,7 +55,7 @@ func FileHandler(desc Descriptor) ConvertHandler {
 
 		t := desc.Type
 		if len(t) == 0 {
-			t = utils.ResolveFileMediaType(from)
+			t = ResolveFileMediaType(from)
 		}
 		descriptors = append(descriptors, Descriptor{
 			Annotations: map[string]string{ocispec.AnnotationTitle: path.Base(from)},
@@ -67,7 +68,7 @@ func FileHandler(desc Descriptor) ConvertHandler {
 	}
 }
 
-func WalkDirHandler(desc Descriptor) ConvertHandler {
+func walkDirHandler(desc Descriptor) ConvertHandler {
 	return func(context.Context) (descriptors []Descriptor, err error) {
 		from := strings.TrimPrefix(desc.From, DirSchema)
 		if from[len(from)-1] != '/' {
@@ -107,14 +108,14 @@ func WalkDirHandler(desc Descriptor) ConvertHandler {
 	}
 }
 
-func HttpHandler(desc Descriptor, tmpDir string) ConvertHandler {
+func httpHandler(desc Descriptor, tmpDir string) ConvertHandler {
 	return func(ctx context.Context) (descriptors []Descriptor, err error) {
-		req, err := client.NewRequest(ctx, http.MethodGet, desc.From, nil)
+		req, err := packerhttp.NewRequest(ctx, http.MethodGet, desc.From, nil)
 		if err != nil {
 			return nil, err
 		}
 
-		resp, err := client.New().Do(req)
+		resp, err := packerhttp.New().Do(req)
 		if err != nil {
 			return nil, err
 		}
@@ -127,7 +128,7 @@ func HttpHandler(desc Descriptor, tmpDir string) ConvertHandler {
 		filename := path.Base(req.URL.Path)
 		filePath := filepath.Join(tmpDir, filename)
 
-		if err = utils.ResponseToFile(resp, filePath); err != nil {
+		if err = packerhttp.ResponseToFile(resp, filePath); err != nil {
 			return nil, err
 		}
 
@@ -140,19 +141,18 @@ func HttpHandler(desc Descriptor, tmpDir string) ConvertHandler {
 func IsHTTP(from string) bool {
 	return strings.HasPrefix(from, "https://") || strings.HasPrefix(from, "http://")
 }
-
 func IsS3(from string) bool {
 	return strings.HasPrefix(from, S3Schema) || strings.HasPrefix(from, S3httpSchema)
 }
-
 func IsFile(from string) bool {
 	return strings.HasPrefix(from, FileSchema)
 }
-
 func IsDir(from string) bool {
 	return strings.HasPrefix(from, DirSchema)
 }
-
 func IsOCI(from string) bool {
-	return strings.HasPrefix(from, OciScheme)
+	return strings.HasPrefix(from, OciScheme) || strings.HasPrefix(from, OciLayoutScheme)
+}
+func IsDocker(from string) bool {
+	return strings.HasPrefix(from, DockerScheme)
 }

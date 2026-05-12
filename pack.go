@@ -21,7 +21,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/arenadata/oci-packer/pkg/utils"
+	"gopkg.in/yaml.v3"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -72,8 +72,7 @@ func (d Descriptor) ToOciDescriptor() (ocispec.Descriptor, io.ReadCloser, error)
 		return ocispec.Descriptor{}, nil, err
 	}
 
-	mt := utils.ResolveFileMediaType(fi.Name())
-	desc, err = utils.NewDescriptorFromReader(mt, fi)
+	desc, err = NewDescriptorFromFileDescriptor(fi)
 	if err != nil {
 		_ = fi.Close()
 		return ocispec.Descriptor{}, nil, err
@@ -91,11 +90,28 @@ func (p Pack) Validate() error {
 	return nil
 }
 
-func (d ConfigDescriptor) ToOciDescriptor() (ocispec.Descriptor, io.ReadCloser, error) {
-	return (Descriptor{
+func (d ConfigDescriptor) ToDescriptor() Descriptor {
+	return Descriptor{
 		From:        d.From,
 		Type:        d.Type,
 		Platform:    d.Platform,
 		Annotations: d.Annotations,
-	}).ToOciDescriptor()
+	}
+}
+
+func LoadFromFile(path string) (*Pack, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+
+	var uploader Pack
+	dec := yaml.NewDecoder(f)
+	dec.KnownFields(true)
+	if err = dec.Decode(&uploader); err != nil {
+		return nil, err
+	}
+
+	return &uploader, nil
 }

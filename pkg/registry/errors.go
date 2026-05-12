@@ -13,4 +13,17 @@
   limitations under the License.
 */
 
-package layout
+package registry
+
+import (
+	"errors"
+)
+
+var (
+	ErrEmptyDockerContentDigest = errors.New("registry did not send a Docker-Content-Digest header")
+	ErrAlreadyExists            = errors.New("already exists")
+)
+
+func IsAlreadyExists(err error) bool {
+	return errors.Is(err, ErrAlreadyExists)
+}

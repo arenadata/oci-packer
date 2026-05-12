@@ -17,17 +17,18 @@ package packer
 
 import (
 	"context"
+	"errors"
 	"os"
 	"time"
 
-	"github.com/containerd/log"
+	"github.com/arenadata/oci-packer/pkg/registry"
+
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"gopkg.in/yaml.v3"
 )
 
-type BuildOption func(*builderOptions)
+type buildOption func(*builderOptions)
 
-func WithTmpDir(tmpDir string) BuildOption {
+func WithTmpDir(tmpDir string) buildOption {
 	return func(o *builderOptions) {
 		o.tmpDir = tmpDir
 	}
@@ -37,9 +38,9 @@ type builderOptions struct {
 	tmpDir string
 }
 
-func (p Pack) Build(ctx context.Context, opts ...BuildOption) (Pusher, error) {
+func (p Pack) Pack(ctx context.Context, resolver registry.Pusher, opts ...buildOption) (ocispec.Descriptor, error) {
 	if err := p.Validate(); err != nil {
-		return nil, err
+		return ocispec.Descriptor{}, err
 	}
 
 	var indexExpected bool
@@ -50,7 +51,8 @@ func (p Pack) Build(ctx context.Context, opts ...BuildOption) (Pusher, error) {
 	}
 
 	if indexExpected && p.Config != nil {
-		log.L.Warning("skipped: cannot use .metadata.config with oci:// and/or platform parameters set. Use items[*].platform instead")
+		msg := "cannot use .metadata.config with oci:// and/or platform items set. Use items[*].config instead"
+		return ocispec.Descriptor{}, errors.New(msg)
 	}
 
 	var options builderOptions
@@ -63,21 +65,28 @@ func (p Pack) Build(ctx context.Context, opts ...BuildOption) (Pusher, error) {
 	}
 
 	if indexExpected {
-		return makeIndex(ctx, &p, &options)
+		pusher, err := p.makeIndex(ctx, options)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		return pusher.Push(ctx, resolver)
 	}
 
-	return makeManifest(ctx, &p, &options)
+	pusher, err := p.makeManifest(ctx, options)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	return pusher.Push(ctx, resolver)
 }
 
-func makeIndex(ctx context.Context, p *Pack, opts *builderOptions) (Pusher, error) {
+func (p Pack) makeIndex(ctx context.Context, opts builderOptions) (Pusher, error) {
 	indexObject := &index{
 		Type:        p.Type,
 		Annotations: extendAnnotations(p.Metadata.Annotations),
 	}
 
 	for _, item := range p.Items {
-		handler := handlerFromItem(item, opts.tmpDir)
-		descriptors, err := handler(ctx)
+		descriptors, err := handleItem(ctx, item, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -87,10 +96,7 @@ func makeIndex(ctx context.Context, p *Pack, opts *builderOptions) (Pusher, erro
 			typ = indexObject.Type
 		}
 		indexObject.Manifests = append(indexObject.Manifests, manifest{
-			Metadata: Metadata{
-				Annotations: extendAnnotations(item.Annotations),
-				Config:      item.Config,
-			},
+			Metadata:    Metadata{Config: item.Config},
 			Type:        typ,
 			Descriptors: descriptors,
 			Platform:    item.Platform,
@@ -100,13 +106,12 @@ func makeIndex(ctx context.Context, p *Pack, opts *builderOptions) (Pusher, erro
 	return indexObject, nil
 }
 
-func makeManifest(ctx context.Context, p *Pack, opts *builderOptions) (Pusher, error) {
+func (p Pack) makeManifest(ctx context.Context, opts builderOptions) (Pusher, error) {
 	manifestObject := &manifest{Metadata: p.Metadata, Type: p.Type}
 	p.Metadata.Annotations = extendAnnotations(p.Metadata.Annotations)
 
 	for _, item := range p.Items {
-		handler := handlerFromItem(item, opts.tmpDir)
-		descriptors, err := handler(ctx)
+		descriptors, err := handleItem(ctx, item, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -117,33 +122,17 @@ func makeManifest(ctx context.Context, p *Pack, opts *builderOptions) (Pusher, e
 	return manifestObject, nil
 }
 
-func handlerFromItem(item Descriptor, tmpDir string) ConvertHandler {
+func handleItem(ctx context.Context, item Descriptor, opts builderOptions) ([]Descriptor, error) {
+	var handler ConvertHandler
 	if IsHTTP(item.From) {
-		return HttpHandler(item, tmpDir)
+		handler = httpHandler(item, opts.tmpDir)
 	} else if IsFile(item.From) {
-		return FileHandler(item)
+		handler = fileHandler(item)
 	} else if IsDir(item.From) {
-		return WalkDirHandler(item)
+		handler = walkDirHandler(item)
 	}
 
-	return nil
-}
-
-func LoadFromFile(path string) (*Pack, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-
-	var uploader Pack
-	dec := yaml.NewDecoder(f)
-	dec.KnownFields(true)
-	if err = dec.Decode(&uploader); err != nil {
-		return nil, err
-	}
-
-	return &uploader, nil
+	return handler(ctx)
 }
 
 func extendAnnotations(annotations map[string]string) map[string]string {

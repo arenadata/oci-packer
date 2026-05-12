@@ -13,13 +13,15 @@
   limitations under the License.
 */
 
-package utils
+package packer
 
 import (
 	"mime"
+	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -39,9 +41,41 @@ func ResolveFileMediaType(filename string) string {
 
 		mimeType := mime.TypeByExtension(ext)
 		if len(mimeType) > 0 {
-			return strings.Split(mimeType, ";")[0]
+			return strings.SplitN(mimeType, ";", 2)[0]
 		}
 	}
 
 	return defaultMediaType
+}
+
+func NewDescriptorFromFileDescriptor(file *os.File) (ocispec.Descriptor, error) {
+	dig, err := digest.FromReader(file)
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	if _, err = file.Seek(0, 0); err != nil {
+		return ocispec.Descriptor{}, err
+	}
+	st, err := file.Stat()
+	if err != nil {
+		return ocispec.Descriptor{}, err
+	}
+
+	return ocispec.Descriptor{
+		MediaType: ResolveFileMediaType(file.Name()),
+		Digest:    dig,
+		Size:      st.Size(),
+	}, nil
+}
+
+func NewDescriptorFromBytes(mediaType string, content []byte) ocispec.Descriptor {
+	if len(mediaType) == 0 {
+		mediaType = defaultMediaType
+	}
+
+	return ocispec.Descriptor{
+		MediaType: mediaType,
+		Digest:    digest.FromBytes(content),
+		Size:      int64(len(content)),
+	}
 }
