@@ -46,8 +46,10 @@ This declarative approach allows you to:
 - Maintain reproducible artifact definitions
 
 #### TODO
-- [] add remote registry support
+- [] pack file validation
 - [] oci-layout
+- [] add remote registry support
+- [] add progressbar
 - [] unit tests
 - commands:
   - [] proxy
