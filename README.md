@@ -24,18 +24,18 @@ A Go-based tool for building and pushing OCI (Open Container Initiative) artifac
 ```yaml
 type: application/vnd.example.artifact
 config:
-  from: file://./schema.json
+  from: file://schema.json
 
 annotations:
   org.opencontainers.image.title: "My Artifact"
 
 items:
-  - from: file://./config.tmpl
+  - from: file://config.tmpl
     type: application/vnd.example.template
     annotations:
       description: "Configuration file"
   
-  - from: dir://./data
+  - from: dir://data
     type: application/vnd.example.data
 ```
 
@@ -48,7 +48,9 @@ This declarative approach allows you to:
 #### TODO
 - [] pack file validation
 - [] oci-layout
-- [] add remote registry support
+- [] remote registry support
+- [] docker registry support
+- [] logging
 - [] add progressbar
 - [] unit tests
 - commands:
