@@ -24,32 +24,30 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/arenadata/oci-packer/internal/logger"
 	packerhttp "github.com/arenadata/oci-packer/pkg/http"
+	"github.com/arenadata/oci-packer/pkg/registry/reference"
 
 	remoteerror "github.com/containerd/containerd/v2/core/remotes/errors"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-)
-
-const (
-	OciScheme       = "oci://"
-	OciLayoutScheme = "layout://"
-	DockerScheme    = "docker://"
-	DirSchema       = "dir://"
-	FileSchema      = "file://"
-	S3Schema        = "s3://"
-	S3httpSchema    = "s3+http://"
+	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 type ConvertHandler func(context.Context) ([]Descriptor, error)
 
 func fileHandler(desc Descriptor) ConvertHandler {
-	return func(context.Context) (descriptors []Descriptor, err error) {
-		from := strings.TrimPrefix(desc.From, FileSchema)
+	return func(ctx context.Context) (descriptors []Descriptor, err error) {
+		log := logger.New("file_handler")
+
+		from := strings.TrimPrefix(desc.From, reference.FileSchema.String())
+		log.WithField("file", from).Debug("processing file")
+
 		st, err := os.Stat(from)
 		if err != nil {
+			log.WithError(err).WithField("file", from).Error("file does not exist")
 			return nil, fmt.Errorf("'%s' does not exist", desc.From)
 		}
 		if st.IsDir() {
+			log.WithField("file", from).Error("path is a directory")
 			return nil, fmt.Errorf("'%s' is a directory", desc.From)
 		}
 
@@ -57,8 +55,21 @@ func fileHandler(desc Descriptor) ConvertHandler {
 		if len(t) == 0 {
 			t = ResolveFileMediaType(from)
 		}
+
+		log.WithFields(map[string]any{
+			"file": from,
+			"type": t,
+			"size": st.Size(),
+		}).Debug("file processed successfully")
+
+		annotations := desc.Annotations
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		annotations[ocispecv1.AnnotationTitle] = path.Base(from)
+
 		descriptors = append(descriptors, Descriptor{
-			Annotations: map[string]string{ocispec.AnnotationTitle: path.Base(from)},
+			Annotations: annotations,
 			Type:        t,
 			From:        desc.From,
 			Platform:    desc.Platform,
@@ -69,18 +80,23 @@ func fileHandler(desc Descriptor) ConvertHandler {
 }
 
 func walkDirHandler(desc Descriptor) ConvertHandler {
-	return func(context.Context) (descriptors []Descriptor, err error) {
-		from := strings.TrimPrefix(desc.From, DirSchema)
-		if from[len(from)-1] != '/' {
-			from += "/"
-		}
+	return func(ctx context.Context) (descriptors []Descriptor, err error) {
+		log := logger.New("dir_handler")
+
+		from := strings.TrimPrefix(desc.From, reference.DirSchema.String())
+		log.WithField("directory", from).Debug("processing directory")
 
 		st, err := os.Stat(from)
 		if err != nil {
+			log.WithError(err).WithField("directory", from).Error("directory does not exist")
 			return nil, fmt.Errorf("'%s' does not exist", desc.From)
 		}
 		if !st.IsDir() {
+			log.WithField("directory", from).Error("path is not a directory")
 			return nil, fmt.Errorf("'%s' is not a directory", desc.From)
+		}
+		if from[len(from)-1] != '/' {
+			from += "/"
 		}
 
 		err = filepath.Walk(from, func(path string, fi os.FileInfo, err error) error {
@@ -93,16 +109,22 @@ func walkDirHandler(desc Descriptor) ConvertHandler {
 			}
 
 			descriptors = append(descriptors, Descriptor{
-				Annotations: map[string]string{ocispec.AnnotationTitle: strings.TrimPrefix(path, from)},
-				From:        FileSchema + path,
+				Annotations: map[string]string{ocispecv1.AnnotationTitle: strings.TrimPrefix(path, from)},
+				From:        reference.FileSchema.String() + path,
 				Platform:    desc.Platform,
 			})
 
 			return nil
 		})
 		if err != nil {
+			log.WithError(err).WithField("directory", from).Error("failed to walk directory")
 			return nil, fmt.Errorf("'%s' list failed: %v", desc.From, err)
 		}
+
+		log.WithFields(map[string]any{
+			"directory": from,
+			"files":     len(descriptors),
+		}).Debug("directory processed successfully")
 
 		return descriptors, nil
 	}
@@ -110,49 +132,47 @@ func walkDirHandler(desc Descriptor) ConvertHandler {
 
 func httpHandler(desc Descriptor, tmpDir string) ConvertHandler {
 	return func(ctx context.Context) (descriptors []Descriptor, err error) {
+		log := logger.New("http_handler")
+		log.WithField("url", desc.From).Debug("downloading from http")
+
 		req, err := packerhttp.NewRequest(ctx, http.MethodGet, desc.From, nil)
 		if err != nil {
+			log.WithError(err).WithField("url", desc.From).Error("failed to create http request")
 			return nil, err
 		}
 
 		resp, err := packerhttp.New().Do(req)
 		if err != nil {
+			log.WithError(err).WithField("url", desc.From).Error("http request failed")
 			return nil, err
 		}
 
 		if resp.StatusCode != http.StatusOK {
 			_ = resp.Body.Close()
+			log.WithField("status_code", resp.StatusCode).Error("http request returned non-OK status")
 			return nil, remoteerror.NewUnexpectedStatusErr(resp)
 		}
 
 		filename := path.Base(req.URL.Path)
 		filePath := filepath.Join(tmpDir, filename)
 
+		log.WithFields(map[string]any{
+			"url":  desc.From,
+			"file": filePath,
+		}).Debug("saving http response to file")
+
 		if err = packerhttp.ResponseToFile(resp, filePath); err != nil {
+			log.WithError(err).WithField("file", filePath).Error("failed to save http response to file")
 			return nil, err
 		}
 
-		desc.From = FileSchema + filePath
+		log.WithFields(map[string]any{
+			"url":  desc.From,
+			"file": filePath,
+		}).Debug("download completed successfully")
+
+		desc.From = reference.FileSchema.String() + filePath
 		descriptors = append(descriptors, desc)
 		return
 	}
-}
-
-func IsHTTP(from string) bool {
-	return strings.HasPrefix(from, "https://") || strings.HasPrefix(from, "http://")
-}
-func IsS3(from string) bool {
-	return strings.HasPrefix(from, S3Schema) || strings.HasPrefix(from, S3httpSchema)
-}
-func IsFile(from string) bool {
-	return strings.HasPrefix(from, FileSchema)
-}
-func IsDir(from string) bool {
-	return strings.HasPrefix(from, DirSchema)
-}
-func IsOCI(from string) bool {
-	return strings.HasPrefix(from, OciScheme) || strings.HasPrefix(from, OciLayoutScheme)
-}
-func IsDocker(from string) bool {
-	return strings.HasPrefix(from, DockerScheme)
 }

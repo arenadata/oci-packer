@@ -18,23 +18,23 @@ package packer
 import (
 	"bytes"
 	"context"
-	"encoding/json/v2"
+	"encoding/json"
 	"io"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/arenadata/oci-packer/internal/logger"
 	"github.com/arenadata/oci-packer/pkg/registry"
+	"github.com/arenadata/oci-packer/pkg/registry/reference"
 
-	"github.com/containerd/log"
 	"github.com/containerd/platforms"
 	"github.com/docker/go-units"
 	"github.com/opencontainers/image-spec/specs-go"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 type Pusher interface {
-	Push(ctx context.Context, pusher registry.Pusher) (ocispec.Descriptor, error)
+	Push(ctx context.Context, pusher registry.Pusher) (ocispecv1.Descriptor, error)
 }
 
 type index struct {
@@ -44,23 +44,31 @@ type index struct {
 	Annotations map[string]string
 }
 
-func (i index) Push(ctx context.Context, pusher registry.Pusher) (ocispec.Descriptor, error) {
-	index := ocispec.Index{
+func (i index) Push(ctx context.Context, pusher registry.Pusher) (ocispecv1.Descriptor, error) {
+	log := logger.New("index_push")
+	log.Debug("building index OCI-manifest for pushing")
+
+	index := ocispecv1.Index{
 		Versioned:    specs.Versioned{SchemaVersion: 2},
-		MediaType:    ocispec.MediaTypeImageIndex,
+		MediaType:    ocispecv1.MediaTypeImageIndex,
 		ArtifactType: i.Type,
 		Annotations:  i.Annotations,
 	}
 
 	for _, m := range i.Manifests {
-		desc, err := m.pushManifest(ctx, pusher)
+		log.Debug("push manifest")
+
+		desc, err := m.Push(ctx, pusher)
 		if err != nil {
-			return ocispec.Descriptor{}, err
+			log.WithError(err).Errorf("failed to push manifest")
+			return ocispecv1.Descriptor{}, err
 		}
+
 		if len(m.Platform) > 0 {
 			p, err := platforms.Parse(m.Platform)
 			if err != nil {
-				return ocispec.Descriptor{}, err
+				log.WithError(err).WithField("platform", m.Platform).Errorf("failed to parse platform")
+				return ocispecv1.Descriptor{}, err
 			}
 			desc.Platform = &p
 		}
@@ -68,26 +76,8 @@ func (i index) Push(ctx context.Context, pusher registry.Pusher) (ocispec.Descri
 		index.Manifests = append(index.Manifests, desc)
 	}
 
+	log.WithField("manifests_count", len(index.Manifests)).Debug("committing index manifest")
 	return commit(ctx, pusher, index, index.MediaType, index.ArtifactType)
-}
-
-func commit(ctx context.Context, pusher registry.Pusher, v any, mt, at string) (ocispec.Descriptor, error) {
-	desc, r, err := newDescriptorWithReader(v, mt)
-	if err != nil {
-		return ocispec.Descriptor{}, err
-	}
-	if err = pusher.Push(ctx, desc, r); err != nil {
-		if !registry.IsAlreadyExists(err) {
-			return ocispec.Descriptor{}, err
-		}
-	}
-
-	if err = pusher.SetTag(ctx, desc); err != nil {
-		return ocispec.Descriptor{}, err
-	}
-	desc.ArtifactType = at
-
-	return desc, nil
 }
 
 type manifest struct {
@@ -97,15 +87,21 @@ type manifest struct {
 	Platform    string
 }
 
-func (m manifest) Push(ctx context.Context, pusher registry.Pusher) (ocispec.Descriptor, error) {
+func (m manifest) Push(ctx context.Context, pusher registry.Pusher) (ocispecv1.Descriptor, error) {
+	log := logger.New("manifest_push")
+	log.Debug("building manifest")
+
 	configDescriptor, err := m.pushConfig(ctx, pusher)
 	if err != nil {
-		return ocispec.Descriptor{}, err
+		log.WithError(err).WithField("digest", configDescriptor.Digest).Error("failed to push config")
+		return ocispecv1.Descriptor{}, err
 	}
 
-	manifest := ocispec.Manifest{
+	log.WithField("digest", configDescriptor.Digest).Debug("config pushed successfully")
+
+	manifest := ocispecv1.Manifest{
 		Versioned:    specs.Versioned{SchemaVersion: 2},
-		MediaType:    ocispec.MediaTypeImageManifest,
+		MediaType:    ocispecv1.MediaTypeImageManifest,
 		ArtifactType: m.Type,
 		Config:       configDescriptor,
 		Annotations:  m.Annotations,
@@ -114,28 +110,34 @@ func (m manifest) Push(ctx context.Context, pusher registry.Pusher) (ocispec.Des
 	for _, d := range m.Descriptors {
 		desc, err := m.pushFile(ctx, pusher, d)
 		if err != nil {
-			return ocispec.Descriptor{}, err
+			return ocispecv1.Descriptor{}, err
 		}
+		log.WithField("digest", desc.Digest).Debug("pushed descriptor layer")
 		manifest.Layers = append(manifest.Layers, desc)
 	}
 
+	log.WithField("layers_count", len(manifest.Layers)).Debug("committing manifest")
 	return commit(ctx, pusher, manifest, manifest.MediaType, manifest.ArtifactType)
 }
 
-func (m manifest) pushFile(ctx context.Context, pusher registry.Pusher, d Descriptor) (ocispec.Descriptor, error) {
-	desc, r, err := d.ToOciDescriptor()
+func (m manifest) pushFile(ctx context.Context, pusher registry.Pusher, d Descriptor) (ocispecv1.Descriptor, error) {
+	log := logger.New("push_file")
+
+	desc, r, err := d.FileToOciDescriptor()
 	if err != nil {
-		return ocispec.Descriptor{}, err
+		log.WithError(err).Error("failed to prepare layer descriptor")
+		return ocispecv1.Descriptor{}, err
 	}
 	defer func() { _ = r.Close() }()
+	log.WithField("digest", desc.Digest).Debug("prepared layer")
 
-	from := strings.TrimPrefix(d.From, FileSchema)
-	fields := log.Fields{
+	fields := map[string]any{
+		"digest":   desc.Digest,
 		"size":     units.BytesSize(float64(desc.Size)),
-		"filepath": filepath.Clean(from),
+		"filepath": strings.TrimPrefix(d.From, reference.FileSchema.String()),
 	}
 
-	log.L.WithFields(fields).Infof("upload artefact")
+	log.WithFields(fields).Debug("upload file")
 
 	now := time.Now()
 	err = pusher.Push(ctx, desc, r)
@@ -145,57 +147,51 @@ func (m manifest) pushFile(ctx context.Context, pusher registry.Pusher, d Descri
 
 	if err != nil {
 		if !registry.IsAlreadyExists(err) {
-			log.L.WithFields(fields).Error("uploaded artefact failed")
-			return ocispec.Descriptor{}, err
+			log.WithError(err).WithFields(fields).Error("uploaded file failed")
+			return ocispecv1.Descriptor{}, err
 		}
-		log.L.WithFields(fields).Warning("artefact already uploaded")
+		log.WithFields(fields).Debug("file already uploaded")
 	} else {
-		log.L.WithFields(fields).Infof("artefact uploaded")
+		log.WithFields(fields).Debug("file uploaded")
 	}
 
 	return desc, nil
 }
 
-func (m manifest) pushConfig(ctx context.Context, pusher registry.Pusher) (ocispec.Descriptor, error) {
+func (m manifest) pushConfig(ctx context.Context, pusher registry.Pusher) (ocispecv1.Descriptor, error) {
 	if m.Config == nil {
-		r := bytes.NewReader(ocispec.DescriptorEmptyJSON.Data)
-		if err := pusher.Push(ctx, ocispec.DescriptorEmptyJSON, r); err != nil {
+		r := bytes.NewReader(ocispecv1.DescriptorEmptyJSON.Data)
+		if err := pusher.Push(ctx, ocispecv1.DescriptorEmptyJSON, r); err != nil {
 			if !registry.IsAlreadyExists(err) {
-				return ocispec.Descriptor{}, err
+				return ocispecv1.Descriptor{}, err
 			}
 		}
-		return ocispec.DescriptorEmptyJSON, nil
+		return ocispecv1.DescriptorEmptyJSON, nil
 	}
 
 	return m.pushFile(ctx, pusher, m.Config.ToDescriptor())
 }
 
-func (m manifest) pushManifest(ctx context.Context, pusher registry.Pusher) (ocispec.Descriptor, error) {
-	manifest, err := m.Push(ctx, pusher)
-	if err != nil {
-		return ocispec.Descriptor{}, err
-	}
-
-	desc, r, err := newDescriptorWithReader(manifest, manifest.MediaType)
-	if err != nil {
-		return ocispec.Descriptor{}, err
-	}
-
-	if err = pusher.Push(ctx, desc, r); err != nil {
-		if !registry.IsAlreadyExists(err) {
-			return ocispec.Descriptor{}, err
-		}
-	}
-	desc.ArtifactType = manifest.ArtifactType
-
-	return desc, nil
-}
-
-func newDescriptorWithReader(manifest any, mt string) (ocispec.Descriptor, io.Reader, error) {
+func newDescriptorWithReader(manifest any, mt string) (ocispecv1.Descriptor, io.Reader, error) {
 	b, err := json.Marshal(manifest)
 	if err != nil {
-		return ocispec.Descriptor{}, nil, err
+		return ocispecv1.Descriptor{}, nil, err
 	}
 
 	return NewDescriptorFromBytes(mt, b), bytes.NewReader(b), nil
+}
+
+func commit(ctx context.Context, pusher registry.Pusher, v any, mt, at string) (ocispecv1.Descriptor, error) {
+	desc, r, err := newDescriptorWithReader(v, mt)
+	if err != nil {
+		return ocispecv1.Descriptor{}, err
+	}
+	if err = pusher.Push(ctx, desc, r); err != nil {
+		if !registry.IsAlreadyExists(err) {
+			return ocispecv1.Descriptor{}, err
+		}
+	}
+	desc.ArtifactType = at
+
+	return desc, nil
 }

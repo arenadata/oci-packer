@@ -17,13 +17,16 @@ package http
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+
+	"github.com/natefinch/atomic"
 )
 
 func ResponseToFile(resp *http.Response, file string) error {
+	defer func() { _ = resp.Body.Close() }()
+
 	st, err := os.Stat(file)
 	notExists := os.IsNotExist(err)
 	if err != nil && !notExists {
@@ -35,6 +38,7 @@ func ResponseToFile(resp *http.Response, file string) error {
 		}
 
 		if st.Size() > 0 && resp.ContentLength == st.Size() {
+			// It is not always possible to obtain a checksum to verify a file
 			// skip file
 			return nil
 		}
@@ -44,50 +48,5 @@ func ResponseToFile(resp *http.Response, file string) error {
 		return err
 	}
 
-	out, err := os.Create(file)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = resp.Body.Close()
-		if e := out.Close(); e != nil {
-			err = e
-		}
-	}()
-
-	sfx := longestCommonSuffix([]string{resp.Request.URL.Path, file})
-	if sfx[0] == '/' {
-		sfx = sfx[1:]
-	}
-
-	buf := make([]byte, 8<<20)
-	_, err = io.CopyBuffer(out, resp.Body, buf)
-	return err
-}
-
-func longestCommonSuffix(strs []string) string {
-	if len(strs) == 0 {
-		return ""
-	}
-
-	suffix := strs[0]
-
-	for i := 1; i < len(strs); i++ {
-		current := strs[i]
-		j := 0
-
-		for j < len(suffix) && j < len(current) {
-			if suffix[len(suffix)-1-j] != current[len(current)-1-j] {
-				break
-			}
-			j++
-		}
-
-		suffix = suffix[len(suffix)-j:]
-		if suffix == "" {
-			return ""
-		}
-	}
-
-	return suffix
+	return atomic.WriteFile(file, resp.Body)
 }

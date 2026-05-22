@@ -46,14 +46,13 @@ This declarative approach allows you to:
 - Maintain reproducible artifact definitions
 
 #### TODO
-- [] pack file validation
-- [] oci-layout
-- [] remote registry support
-- [] docker registry support
-- [] logging
+- [x] pack file validation
+- [x] oci-layout
+- [x] logging
 - [] add progressbar
-- [] unit tests
+- [x] unit tests
 - commands:
   - [] proxy
-  - [] copy
+  - [x] copy
   - [] list components
+  - [] mount

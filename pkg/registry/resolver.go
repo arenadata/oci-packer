@@ -19,12 +19,12 @@ import (
 	"context"
 	"io"
 
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // Resolver provides remotes based on a locator.
 type Resolver interface {
-	Resolve(ctx context.Context, ref string) (ocispec.Descriptor, error)
+	Resolve(ctx context.Context, ref string) (ocispecv1.Descriptor, error)
 	Exists(ctx context.Context, ref string) (bool, error)
 	Mount(ctx context.Context, ref string) error
 
@@ -35,11 +35,11 @@ type Resolver interface {
 // Fetcher fetches content.
 type Fetcher interface {
 	// Fetch the resource identified by the descriptor.
-	Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error)
+	Fetch(ctx context.Context, desc ocispecv1.Descriptor) (io.ReadCloser, error)
 }
 
 // Pusher pushes content
 type Pusher interface {
-	Push(ctx context.Context, desc ocispec.Descriptor, r io.Reader) error
-	SetTag(ctx context.Context, desc ocispec.Descriptor) error
+	Push(ctx context.Context, desc ocispecv1.Descriptor, r io.Reader) error
+	SetTag(ctx context.Context, desc ocispecv1.Descriptor) error
 }

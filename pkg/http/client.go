@@ -17,6 +17,7 @@ package http
 
 import (
 	"context"
+	"crypto/tls"
 	"io"
 	"net/http"
 
@@ -26,20 +27,25 @@ import (
 )
 
 type Client struct {
-	client *http.Client
+	client   *http.Client
+	insecure bool
 
 	authz docker.Authorizer
 	creds func(string) (string, string, error)
 }
 
 func New(opts ...Option) *Client {
-	cl := &Client{
-		client: &http.Client{Transport: docker.DefaultHTTPTransport(nil)},
-	}
-
+	cl := new(Client)
 	for _, opt := range opts {
 		opt(cl)
 	}
+
+	var defaultTLSConfig *tls.Config
+	if cl.insecure {
+		defaultTLSConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+
+	cl.client = &http.Client{Transport: docker.DefaultHTTPTransport(defaultTLSConfig)}
 
 	header := make(http.Header)
 	header.Set("User-Agent", version.UserAgent())

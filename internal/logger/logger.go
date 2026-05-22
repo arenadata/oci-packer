@@ -13,37 +13,28 @@
   limitations under the License.
 */
 
-package http
+package logger
 
 import (
-	"net/http"
-	"strings"
+	"github.com/containerd/log"
+	"github.com/sirupsen/logrus"
 )
 
-type Option func(*Client)
-
-func WithAuthCreds(creds func(string) (string, string, error)) Option {
-	return func(c *Client) {
-		c.creds = creds
-	}
+func init() {
+	log.L.Logger.SetFormatter(&logrus.TextFormatter{
+		TimestampFormat: "20060102150405",
+		FullTimestamp:   true,
+	})
 }
 
-func WithInsecure() Option {
-	return func(c *Client) {
-		c.insecure = true
-	}
+func New(group string) *logrus.Entry {
+	return log.L.WithField("group", group)
 }
 
-type RequestOption func(*http.Request)
-
-func WithContentType(contentType string) RequestOption {
-	return func(req *http.Request) {
-		req.Header.Set("Content-Type", contentType)
-	}
+func SetLevelDebug() {
+	log.L.Logger.SetLevel(logrus.DebugLevel)
 }
 
-func WithAccept(allow ...string) RequestOption {
-	return func(req *http.Request) {
-		req.Header.Set("Accept", strings.Join(allow, ","))
-	}
+func SetLevelError() {
+	log.L.Logger.SetLevel(logrus.ErrorLevel)
 }

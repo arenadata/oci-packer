@@ -23,29 +23,34 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/arenadata/oci-packer/internal/logger"
 	packerhttp "github.com/arenadata/oci-packer/pkg/http"
 	"github.com/arenadata/oci-packer/pkg/registry"
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
 
 	"github.com/containerd/containerd/v2/core/images"
 	"github.com/opencontainers/go-digest"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 var (
 	resolveHeaders = []string{
 		images.MediaTypeDockerSchema2Manifest,
 		images.MediaTypeDockerSchema2ManifestList,
-		ocispec.MediaTypeImageManifest,
-		ocispec.MediaTypeImageIndex,
+		ocispecv1.MediaTypeImageManifest,
+		ocispecv1.MediaTypeImageIndex,
 		"*/*",
 	}
+
+	log = logger.New("remote_registry")
 )
 
 type Client struct {
-	ref       reference.Reference
-	client    *packerhttp.Client
+	ref    reference.Reference
+	client *packerhttp.Client
+
 	plainHttp bool
+	insecure  bool
 }
 
 func New(ref string, opts ...Option) (registry.Resolver, error) {
@@ -54,9 +59,7 @@ func New(ref string, opts ...Option) (registry.Resolver, error) {
 		opt(cl)
 	}
 
-	if cl.client == nil {
-		cl.client = packerhttp.New()
-	}
+	cl.client = packerhttp.New()
 
 	var err error
 	cl.ref, err = reference.Parse(ref)
@@ -64,11 +67,15 @@ func New(ref string, opts ...Option) (registry.Resolver, error) {
 		return nil, err
 	}
 
+	if cl.ref.Scheme != reference.RegistryScheme {
+		return nil, reference.ErrSchemeUnsupported
+	}
+
 	return cl, nil
 }
 
 func (c Client) urlFromReference(ref string) (registryUrl, error) {
-	repoRef, err := parseReference(c.ref, ref)
+	repoRef, err := reference.ParseRegistryReference(c.ref, ref)
 	if err != nil {
 		return registryUrl{}, err
 	}
@@ -76,28 +83,28 @@ func (c Client) urlFromReference(ref string) (registryUrl, error) {
 	return fromRef(repoRef, c.plainHttp), nil
 }
 
-func (c Client) Resolve(ctx context.Context, ref string) (ocispec.Descriptor, error) {
+func (c Client) Resolve(ctx context.Context, ref string) (ocispecv1.Descriptor, error) {
 	desc, _, err := c.resolve(ctx, ref)
 	return desc, err
 }
 
-func (c Client) resolve(ctx context.Context, ref string) (ocispec.Descriptor, registryUrl, error) {
+func (c Client) resolve(ctx context.Context, ref string) (ocispecv1.Descriptor, registryUrl, error) {
 	repoUrl, err := c.urlFromReference(ref)
 	if err != nil {
-		return ocispec.Descriptor{}, registryUrl{}, err
+		return ocispecv1.Descriptor{}, registryUrl{}, err
 	}
 
 	resp, err := c.resolveRef(ctx, repoUrl.manifests(), packerhttp.WithAccept(resolveHeaders...))
 	if err != nil {
-		return ocispec.Descriptor{}, registryUrl{}, err
+		return ocispecv1.Descriptor{}, registryUrl{}, err
 	}
 
 	dgst, err := digest.Parse(resp.Header.Get("Docker-Content-Digest"))
 	if err != nil {
-		return ocispec.Descriptor{}, registryUrl{}, err
+		return ocispecv1.Descriptor{}, registryUrl{}, err
 	}
 
-	return ocispec.Descriptor{
+	return ocispecv1.Descriptor{
 		MediaType: getManifestMediaType(resp),
 		Digest:    dgst,
 		Size:      resp.ContentLength,
@@ -120,6 +127,7 @@ func getManifestMediaType(resp *http.Response) string {
 }
 
 func (c Client) resolveRef(ctx context.Context, url string, opts ...packerhttp.RequestOption) (*http.Response, error) {
+	log.WithField("url", url).Debug("resolving reference")
 	resp, err := c.client.Head(ctx, url, opts...)
 	if err != nil {
 		return nil, err
@@ -141,10 +149,11 @@ func (c Client) Exists(ctx context.Context, ref string) (bool, error) {
 	}
 
 	if _, err = c.resolveRef(ctx, repoUrl.blobs()); err != nil {
-		if packerhttp.IsNotFound(err) {
-			err = nil
+		if !packerhttp.IsNotFound(err) {
+			log.WithError(err).Error("failed to resolve reference")
+			return false, err
 		}
-		return false, err
+		return false, nil
 	}
 	return true, nil
 }
@@ -155,13 +164,15 @@ func (c Client) Mount(ctx context.Context, ref string) error {
 		return err
 	}
 
-	return c.mountDescriptor(ctx, desc, repoUrl.Image)
+	return c.mountDescriptor(ctx, desc, repoUrl.Path)
 }
 
-func (c Client) mountDescriptor(ctx context.Context, desc ocispec.Descriptor, from string) error {
+func (c Client) mountDescriptor(ctx context.Context, desc ocispecv1.Descriptor, from string) error {
+	log.WithFields(map[string]any{"digest": desc.Digest, "from": from}).Debug("mounting descriptor")
+
 	switch desc.MediaType {
-	case ocispec.MediaTypeImageIndex, images.MediaTypeDockerSchema2ManifestList:
-		var index ocispec.Index
+	case ocispecv1.MediaTypeImageIndex, images.MediaTypeDockerSchema2ManifestList:
+		var index ocispecv1.Index
 		if err := c.fetchJson(ctx, desc, &index); err != nil {
 			return err
 		}
@@ -171,12 +182,12 @@ func (c Client) mountDescriptor(ctx context.Context, desc ocispec.Descriptor, fr
 			}
 		}
 		return nil
-	case ocispec.MediaTypeImageManifest, images.MediaTypeDockerSchema2Manifest:
+	case ocispecv1.MediaTypeImageManifest, images.MediaTypeDockerSchema2Manifest:
 		return c.mountManifest(ctx, desc, from)
 	}
 
 	repoRef := c.ref
-	repoRef.Image = from
+	repoRef.Path = from
 	repoRef.Ref = desc.Digest.String()
 
 	repoUrl := fromRef(repoRef, c.plainHttp)
@@ -191,15 +202,15 @@ func (c Client) mountDescriptor(ctx context.Context, desc ocispec.Descriptor, fr
 	}
 
 	actual := resp.Header.Get("Docker-Content-Digest")
-	if len(actual) > 0 && actual == repoRef.Ref {
+	if len(actual) > 0 && actual != repoRef.Ref {
 		return fmt.Errorf("got digest %s, expected %s", actual, repoRef.Ref)
 	}
 
 	return nil
 }
 
-func (c Client) mountManifest(ctx context.Context, desc ocispec.Descriptor, from string) error {
-	var manifest ocispec.Manifest
+func (c Client) mountManifest(ctx context.Context, desc ocispecv1.Descriptor, from string) error {
+	var manifest ocispecv1.Manifest
 	if err := c.fetchJson(ctx, desc, &manifest); err != nil {
 		return err
 	}
@@ -220,7 +231,7 @@ func (c Client) mountManifest(ctx context.Context, desc ocispec.Descriptor, from
 	return nil
 }
 
-func (c Client) fetchJson(ctx context.Context, desc ocispec.Descriptor, v any) error {
+func (c Client) fetchJson(ctx context.Context, desc ocispecv1.Descriptor, v any) error {
 	reader, err := c.Fetch(ctx, desc)
 	if err != nil {
 		return err
@@ -229,7 +240,7 @@ func (c Client) fetchJson(ctx context.Context, desc ocispec.Descriptor, v any) e
 	return json.NewDecoder(reader).Decode(v)
 }
 
-func (c Client) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadCloser, error) {
+func (c Client) Fetch(ctx context.Context, desc ocispecv1.Descriptor) (io.ReadCloser, error) {
 	repoRef := c.ref
 	repoRef.Ref = desc.Digest.String()
 
@@ -247,7 +258,9 @@ func (c Client) Fetch(ctx context.Context, desc ocispec.Descriptor) (io.ReadClos
 	return resp.Body, nil
 }
 
-func (c Client) Push(ctx context.Context, desc ocispec.Descriptor, r io.Reader) error {
+func (c Client) Push(ctx context.Context, desc ocispecv1.Descriptor, r io.Reader) error {
+	log.WithFields(map[string]any{"digest": desc.Digest, "size": desc.Size}).Debug("pushing blob")
+
 	if ok, err := c.Exists(ctx, desc.Digest.String()); err != nil {
 		return err
 	} else if ok {
@@ -299,10 +312,10 @@ func (c Client) Push(ctx context.Context, desc ocispec.Descriptor, r io.Reader) 
 	return nil
 }
 
-func (c Client) SetTag(ctx context.Context, desc ocispec.Descriptor) error {
+func (c Client) SetTag(ctx context.Context, desc ocispecv1.Descriptor) error {
 	switch desc.MediaType {
-	case ocispec.MediaTypeImageManifest,
-		ocispec.MediaTypeImageIndex,
+	case ocispecv1.MediaTypeImageManifest,
+		ocispecv1.MediaTypeImageIndex,
 		images.MediaTypeDockerSchema2Manifest,
 		images.MediaTypeDockerSchema2ManifestList:
 	default:
@@ -316,6 +329,8 @@ func (c Client) SetTag(ctx context.Context, desc ocispec.Descriptor) error {
 	defer func() { _ = r.Close() }()
 
 	repoUrl, _ := c.urlFromReference("")
+	log.WithFields(map[string]any{"url": repoUrl.manifests(), "digest": desc.Digest}).Debug("setting tag")
+
 	resp, err := c.client.Put(ctx, repoUrl.manifests(), r, packerhttp.WithContentType(desc.MediaType))
 	if err != nil {
 		return err
@@ -327,35 +342,4 @@ func (c Client) SetTag(ctx context.Context, desc ocispec.Descriptor) error {
 	}
 
 	return nil
-}
-
-func parseReference(repoRef reference.Reference, ref string) (reference.Reference, error) {
-	if len(ref) > 0 && !isDigest(ref) && strings.ContainsAny(ref, "@:") {
-		// [registry.host/[repo/]]image[:tag|@digest]
-		var err error
-		var parsedReference reference.Reference
-		if strings.HasPrefix(ref, repoRef.Host) {
-			parsedReference, err = reference.Parse(ref)
-		} else {
-			parsedReference, err = reference.ParseImage(ref)
-		}
-		if err != nil {
-			return reference.Reference{}, err
-		}
-
-		repoRef.Image = parsedReference.Image
-		repoRef.Ref = parsedReference.Ref
-		return repoRef, nil
-	}
-
-	if len(ref) > 0 {
-		// tag or digest
-		repoRef.Ref = ref
-	}
-
-	return repoRef, nil
-}
-
-func isDigest(s string) bool {
-	return s[:3] == "sha" && s[6] == ':'
 }

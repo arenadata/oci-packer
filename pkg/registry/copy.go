@@ -17,10 +17,75 @@ package registry
 
 import (
 	"context"
+	"encoding/json"
 
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/arenadata/oci-packer/internal/logger"
+	"github.com/containerd/containerd/v2/core/images"
+	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
-func Copy(ctx context.Context, dst Pusher, src Fetcher, desc ocispec.Descriptor) error {
-	return nil
+func Copy(ctx context.Context, dst Pusher, src Fetcher, desc ocispecv1.Descriptor) error {
+	fields := map[string]any{"digest": desc.Digest, "size": desc.Size, "media_type": desc.MediaType}
+	log := logger.New("copy")
+	log.WithFields(fields).Debug("copy artifact by descriptor")
+
+	switch desc.MediaType {
+	case ocispecv1.MediaTypeImageIndex, images.MediaTypeDockerSchema2ManifestList:
+		var index ocispecv1.Index
+		if err := fetch(ctx, src, desc, &index); err != nil {
+			return err
+		}
+		for _, manifest := range index.Manifests {
+			if err := Copy(ctx, dst, src, manifest); err != nil {
+				return err
+			}
+		}
+
+	case ocispecv1.MediaTypeImageManifest, images.MediaTypeDockerSchema2Manifest:
+		var manifest ocispecv1.Manifest
+		if err := fetch(ctx, src, desc, &manifest); err != nil {
+			return err
+		}
+
+		if err := copyDescriptor(ctx, dst, src, manifest.Config); err != nil {
+			return err
+		}
+
+		for _, layer := range manifest.Layers {
+			if err := Copy(ctx, dst, src, layer); err != nil {
+				return err
+			}
+		}
+
+		if manifest.Subject != nil {
+			if err := Copy(ctx, dst, src, *manifest.Subject); err != nil {
+				return err
+			}
+		}
+	}
+
+	return copyDescriptor(ctx, dst, src, desc)
+}
+
+func copyDescriptor(ctx context.Context, dst Pusher, src Fetcher, desc ocispecv1.Descriptor) error {
+	fields := map[string]any{"digest": desc.Digest, "media_type": desc.MediaType}
+	log := logger.New("copy_descriptor")
+	log.WithFields(fields).Debug("copying descriptor")
+
+	r, err := src.Fetch(ctx, desc)
+	if err != nil {
+		log.WithError(err).WithFields(fields).Error("error fetching descriptor")
+		return err
+	}
+	defer func() { _ = r.Close() }()
+	return dst.Push(ctx, desc, r)
+}
+
+func fetch(ctx context.Context, src Fetcher, desc ocispecv1.Descriptor, v any) error {
+	reader, err := src.Fetch(ctx, desc)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = reader.Close() }()
+	return json.NewDecoder(reader).Decode(v)
 }

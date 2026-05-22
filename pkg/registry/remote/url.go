@@ -36,11 +36,10 @@ func fromRef(ref reference.Reference, plainHttp bool) registryUrl {
 		scheme = "http"
 	}
 
-	if ref.Host == "docker.io" || ref.Host == "index.docker.io" {
-		ref.Host = "registry-1.docker.io"
-
-		if !strings.Contains(ref.Image, "/") {
-			ref.Image = "library/" + ref.Image
+	ref.Host = normalizeRegistry(ref.Host)
+	if ref.Host == "index.docker.io" {
+		if !strings.Contains(ref.Path, "/") {
+			ref.Path = "library/" + ref.Path
 		}
 	}
 
@@ -50,13 +49,21 @@ func fromRef(ref reference.Reference, plainHttp bool) registryUrl {
 	}
 }
 
+func normalizeRegistry(registry string) string {
+	switch registry {
+	case "registry-1.docker.io", "docker.io":
+		return "index.docker.io"
+	}
+	return registry
+}
+
 func (r registryUrl) v2() *url.URL {
 	return &url.URL{Scheme: r.scheme, Host: r.Host, Path: "/v2/"}
 }
 
 func (r registryUrl) repo() *url.URL {
 	u := r.v2()
-	u.Path = path.Join(u.Path, r.Image)
+	u.Path = path.Join(u.Path, r.Path)
 	return u
 }
 

@@ -29,83 +29,110 @@ func TestParse_Successful(t *testing.T) {
 	}{
 		{
 			name:  "basic host and path",
-			input: "docker.io/library/nginx",
+			input: "cr://docker.io/library/nginx",
 			expectedRef: Reference{
-				Host:  "docker.io",
-				Image: "library/nginx",
-				Ref:   "latest",
+				Scheme: RegistryScheme,
+				Host:   "docker.io",
+				Path:   "library/nginx",
+				Ref:    "latest",
 			},
 		},
 		{
 			name:  "host, path and tag",
-			input: "docker.io/library/nginx:1.19",
+			input: "cr://docker.io/library/nginx:1.19",
 			expectedRef: Reference{
-				Host:  "docker.io",
-				Image: "library/nginx",
-				Ref:   "1.19",
+				Scheme: RegistryScheme,
+				Host:   "docker.io",
+				Path:   "library/nginx",
+				Ref:    "1.19",
 			},
 		},
 		{
 			name:  "host, path and digest",
-			input: "docker.io/library/nginx@sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
+			input: "cr://docker.io/library/nginx@sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
 			expectedRef: Reference{
-				Host:  "docker.io",
-				Image: "library/nginx",
-				Ref:   "sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
+				Scheme: RegistryScheme,
+				Host:   "docker.io",
+				Path:   "library/nginx",
+				Ref:    "sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
 			},
 		},
 		{
 			name:  "simple host and single image name",
-			input: "localhost/myapp",
+			input: "cr://localhost/myapp",
 			expectedRef: Reference{
-				Host:  "localhost",
-				Image: "myapp",
-				Ref:   "latest",
+				Scheme: RegistryScheme,
+				Host:   "localhost",
+				Path:   "myapp",
+				Ref:    "latest",
 			},
 		},
 		{
 			name:  "host with port and tag",
-			input: "localhost:5000/myapp:v1.0",
+			input: "cr://localhost:5000/myapp:v1.0",
 			expectedRef: Reference{
-				Host:  "localhost:5000",
-				Image: "myapp",
-				Ref:   "v1.0",
+				Scheme: RegistryScheme,
+				Host:   "localhost:5000",
+				Path:   "myapp",
+				Ref:    "v1.0",
 			},
 		},
 		{
 			name:  "deeply nested path with tag",
-			input: "registry.example.com/team/project/service:v2",
+			input: "cr://registry.example.com/team/project/service:v2",
 			expectedRef: Reference{
-				Host:  "registry.example.com",
-				Image: "team/project/service",
-				Ref:   "v2",
+				Scheme: RegistryScheme,
+				Host:   "registry.example.com",
+				Path:   "team/project/service",
+				Ref:    "v2",
 			},
 		},
 		{
 			name:  "digest with algorithm and colon",
-			input: "docker.io/nginx@sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
+			input: "cr://docker.io/nginx@sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
 			expectedRef: Reference{
-				Host:  "docker.io",
-				Image: "nginx",
-				Ref:   "sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
+				Scheme: RegistryScheme,
+				Host:   "docker.io",
+				Path:   "nginx",
+				Ref:    "sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
 			},
 		},
 		{
 			name:  "image name with dots and hyphens",
-			input: "registry.io/my-app.v2:1.0-alpha",
+			input: "cr://registry.io/my-app.v2:1.0-alpha",
 			expectedRef: Reference{
-				Host:  "registry.io",
-				Image: "my-app.v2",
-				Ref:   "1.0-alpha",
+				Scheme: RegistryScheme,
+				Host:   "registry.io",
+				Path:   "my-app.v2",
+				Ref:    "1.0-alpha",
 			},
 		},
 		{
 			name:  "numeric tag",
-			input: "docker.io/nginx:123",
+			input: "cr://docker.io/nginx:123",
 			expectedRef: Reference{
-				Host:  "docker.io",
-				Image: "nginx",
-				Ref:   "123",
+				Scheme: RegistryScheme,
+				Host:   "docker.io",
+				Path:   "nginx",
+				Ref:    "123",
+			},
+		},
+		{
+			name:  "OCI dir reference with numeric tag",
+			input: "oci://relative/path/to/dir:nginx:123",
+			expectedRef: Reference{
+				Scheme: OciScheme,
+				Path:   "relative/path/to/dir",
+				Ref:    "nginx:123",
+			},
+		},
+		{
+			name:  "OCI dir reference with numeric tag",
+			input: "oci:///full/path/to/dir:docker.io/library/nginx:123",
+			expectedRef: Reference{
+				Scheme: OciScheme,
+				Path:   "/full/path/to/dir",
+				Ref:    "docker.io/library/nginx:123",
 			},
 		},
 	}
@@ -131,78 +158,78 @@ func TestParse_Errors(t *testing.T) {
 	}{
 		{
 			name:          "double slash in path (dummy:// is not in input)",
-			input:         "docker.io//library/nginx",
+			input:         "cr://docker.io//library/nginx",
 			expectedError: ErrInvalid,
 		},
 		{
 			name:          "image with trailing slash before tag",
-			input:         "docker.io/myapp/:latest",
+			input:         "cr://docker.io/myapp/:latest",
 			expectedError: ErrInvalid,
 		},
 		{
 			name:          "scheme like http://",
 			input:         "http://docker.io/nginx",
-			expectedError: ErrInvalid,
+			expectedError: ErrSchemeUnsupported,
 		},
 		{
 			name:          "scheme like docker://",
 			input:         "docker://registry/nginx",
-			expectedError: ErrInvalid,
+			expectedError: ErrSchemeUnsupported,
 		},
 		{
 			name:          "only // not ://",
 			input:         "//host/path",
-			expectedError: ErrInvalid,
+			expectedError: ErrSchemeRequired,
 		},
 		{
 			name:          "empty string",
 			input:         "",
-			expectedError: ErrHostnameRequired,
+			expectedError: ErrInvalid,
 		},
 		{
 			name:          "only tag (leading colon)",
 			input:         ":latest",
-			expectedError: ErrInvalid,
+			expectedError: ErrSchemeRequired,
 		},
 		{
 			name:          "only digest (leading @)",
 			input:         "@sha256:abc123",
-			expectedError: ErrInvalid,
+			expectedError: ErrSchemeRequired,
 		},
 		{
 			name:          "path without hostname",
 			input:         "/library/nginx:latest",
-			expectedError: ErrHostnameRequired,
+			expectedError: ErrSchemeRequired,
 		},
 		{
 			name:          "host only, no path",
 			input:         "docker.io",
-			expectedError: ErrInvalid,
+			expectedError: ErrSchemeRequired,
 		},
 		{
 			name:          "host with port only, no path",
 			input:         "localhost:5000",
-			expectedError: ErrInvalid,
+			expectedError: ErrSchemeRequired,
 		},
 		{
 			name:          "multiple @ symbols",
 			input:         "docker.io/myapp@tag@sha256:abc",
-			expectedError: ErrInvalid,
+			expectedError: ErrSchemeRequired,
 		},
 		{
 			name:          "multiple colons in image path",
 			input:         "docker.io/image:with:colons",
-			expectedError: ErrInvalid,
+			expectedError: ErrSchemeRequired,
 		},
 		{
 			name:          "multiple colons with tag",
 			input:         "docker.io/image:with:colons:v1",
-			expectedError: ErrInvalid,
+			expectedError: ErrSchemeRequired,
 		},
 		{
 			name:          "spaces in input",
 			input:         "host port/myapp",
-			expectedError: ErrInvalid,
+			expectedError: ErrSchemeRequired,
 		},
 	}
 
@@ -223,12 +250,12 @@ func TestParse_Errors(t *testing.T) {
 func TestParse_ReferenceSeparation(t *testing.T) {
 	// @ takes precedence over : in separating Ref from Image
 	t.Run("digest with colon inside", func(t *testing.T) {
-		ref, err := Parse("docker.io/myapp@sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b")
+		ref, err := Parse("cr://docker.io/myapp@sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b")
 		if err != nil {
 			t.Fatalf("Parse() unexpected error: %v", err)
 		}
-		if ref.Image != "myapp" {
-			t.Errorf("Image = %q, want %q", ref.Image, "myapp")
+		if ref.Path != "myapp" {
+			t.Errorf("Image = %q, want %q", ref.Path, "myapp")
 		}
 		if ref.Ref != "sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b" {
 			t.Errorf("Ref = %q, want %q", ref.Ref, "sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b")
@@ -236,12 +263,12 @@ func TestParse_ReferenceSeparation(t *testing.T) {
 	})
 
 	t.Run("colon separates tag when no @", func(t *testing.T) {
-		ref, err := Parse("docker.io/myapp:v1.0")
+		ref, err := Parse("cr://docker.io/myapp:v1.0")
 		if err != nil {
 			t.Fatalf("Parse() unexpected error: %v", err)
 		}
-		if ref.Image != "myapp" {
-			t.Errorf("Image = %q, want %q", ref.Image, "myapp")
+		if ref.Path != "myapp" {
+			t.Errorf("Image = %q, want %q", ref.Path, "myapp")
 		}
 		if ref.Ref != "v1.0" {
 			t.Errorf("Ref = %q, want %q", ref.Ref, "v1.0")

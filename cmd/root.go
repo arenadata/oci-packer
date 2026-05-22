@@ -20,12 +20,11 @@ import (
 	"os"
 
 	"github.com/arenadata/oci-packer"
+	"github.com/arenadata/oci-packer/internal/logger"
 	"github.com/arenadata/oci-packer/internal/version"
 	packerhttp "github.com/arenadata/oci-packer/pkg/http"
+	"github.com/arenadata/oci-packer/pkg/registry"
 	"github.com/arenadata/oci-packer/pkg/registry/remote"
-
-	"github.com/containerd/log"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -33,15 +32,21 @@ var rootCmd = &cobra.Command{
 	Use:     "oci-pack <reference>",
 	Version: version.Version(),
 	Short:   "Build manifests from pack-file and upload artifacts to container registry",
-	PreRunE: cobra.ExactArgs(1),
+	Args:    cobra.ExactArgs(1),
 	Run:     packRun,
 }
 
 func init() {
-	log.L.Logger.SetFormatter(&logrus.TextFormatter{
-		TimestampFormat: "20060102150405",
-		FullTimestamp:   true,
+	var verbose bool
+	cobra.OnInitialize(func() {
+		if verbose {
+			logger.SetLevelDebug()
+		}
 	})
+	// TODO
+	//rootCmd.PersistentFlags().BoolVar(&showProgress, "progress", false, "Show progress output.")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output.")
+	//rootCmd.MarkFlagsMutuallyExclusive("verbose", "progress")
 
 	rootCmd.PersistentFlags().StringP("login", "l", "", "Login to registry.")
 	rootCmd.PersistentFlags().StringP("password", "p", "", "Password to use when connecting to registry.")
@@ -53,6 +58,7 @@ func init() {
 	_ = rootCmd.MarkFlagRequired("file")
 
 	rootCmd.Flags().String("tmp-dir", "", "Path to the temporary directory.")
+
 }
 
 func Execute() {
@@ -63,41 +69,83 @@ func Execute() {
 }
 
 func packRun(cmd *cobra.Command, args []string) {
+	log := logger.New("pack")
 	ref := args[0]
 	file, _ := cmd.Flags().GetString("file")
 	tmpDir, _ := cmd.Flags().GetString("tmp-dir")
-	plainHttp, _ := cmd.Flags().GetBool("plain-http")
-	login, _ := cmd.Flags().GetString("login")
-	password, _ := cmd.Flags().GetString("password")
+
+	log.WithFields(map[string]any{
+		"version":   version.Version(),
+		"pack_file": file,
+		"tmp_dir":   tmpDir,
+		"reference": ref,
+	}).Debug("command configuration")
 
 	packManifest, err := packer.LoadFromFile(file)
 	if err != nil {
-		log.L.Fatal(err)
+		log.WithError(err).WithField("pack_file", file).Fatal("failed to load pack file")
 	}
+
+	repoClient, err := remoteClientFromCommandArguments(cmd, ref)
+	if err != nil {
+		log.WithError(err).WithField("reference", ref).Fatal("failed to create remote registry client")
+	}
+
+	log.WithField("reference", ref).Info("remote registry client initialized")
+
+	log.WithFields(map[string]any{
+		"items_count": len(packManifest.Items),
+		"reference":   ref,
+	}).Debug("starting pack operation")
+
+	desc, err := packManifest.Pack(cmd.Context(), repoClient, packer.WithTmpDir(tmpDir))
+	if err != nil {
+		log.WithError(err).Fatal("pack operation failed")
+	}
+
+	log.WithFields(map[string]any{"digest": desc.Digest}).Debug("pack operation completed successfully")
+
+	logFields := map[string]any{"reference": ref, "digest": desc.Digest}
+	if err = repoClient.SetTag(cmd.Context(), desc); err != nil {
+		log.WithError(err).WithFields(logFields).Fatal("failed to set tag in registry")
+	}
+
+	log.WithFields(logFields).Debug("tag set successfully")
+	log.WithField("reference", ref).Info("oci-packer execution completed")
+}
+
+func remoteClientFromCommandArguments(cmd *cobra.Command, ref string) (registry.Resolver, error) {
+	log := logger.New("remote_client")
+
+	plainHttp, _ := cmd.Flags().GetBool("plain-http")
+	insecure, _ := cmd.Flags().GetBool("insecure")
+	login, _ := cmd.Flags().GetString("login")
+	password, _ := cmd.Flags().GetString("password")
+
+	log.Debug(map[string]any{
+		"login":      login,
+		"plain-http": plainHttp,
+		"insecure":   insecure,
+	}, "authentication credentials configured")
 
 	var opts []remote.Option
 	if plainHttp {
 		opts = append(opts, remote.WithPlainHttp())
 	}
 
+	var httpOptions []packerhttp.Option
+	if insecure {
+		httpOptions = append(httpOptions, packerhttp.WithInsecure())
+	}
+
 	if len(login) > 0 {
-		packerClient := packerhttp.New(packerhttp.WithAuthCreds(func(string) (string, string, error) {
+		httpOptions = append(httpOptions, packerhttp.WithAuthCreds(func(string) (string, string, error) {
 			return login, password, nil
 		}))
-		opts = append(opts, remote.WithClient(packerClient))
 	}
 
-	repoClient, err := remote.New(ref, opts...)
-	if err != nil {
-		log.L.Fatal(err)
-	}
+	packerClient := packerhttp.New(httpOptions...)
+	opts = append(opts, remote.WithClient(packerClient))
 
-	desc, err := packManifest.Pack(cmd.Context(), repoClient, packer.WithTmpDir(tmpDir))
-	if err != nil {
-		log.L.Fatal(err)
-	}
-
-	if err = repoClient.SetTag(cmd.Context(), desc); err != nil {
-		log.L.Fatal(err)
-	}
+	return remote.New(ref, opts...)
 }
