@@ -33,10 +33,12 @@ var proxyCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(proxyCmd)
 
-	proxyCmd.Flags().Bool("unpack", false, "Use OCI layout with unpack Layers")
+	proxyCmd.Flags().String("addr", ":8080", "Address to listen on.")
+	proxyCmd.Flags().Bool("unpack", false, "Use OCI layout with unpack Layers.")
 }
 
 func proxyCmdRun(cmd *cobra.Command, args []string) {
+	addr, _ := cmd.Flags().GetString("addr")
 	var opts []proxy.Option
 
 	if ok, _ := cmd.Flags().GetBool("plain-http"); ok {
@@ -58,6 +60,6 @@ func proxyCmdRun(cmd *cobra.Command, args []string) {
 		log.Fatal(err)
 	}
 
-	srv := &http.Server{Addr: ":8080", Handler: proxyHandler}
+	srv := &http.Server{Addr: addr, Handler: proxyHandler}
 	log.Fatal(srv.ListenAndServe())
 }
