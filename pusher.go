@@ -71,6 +71,7 @@ func (i index) Push(ctx context.Context, pusher registry.Pusher) (ocispecv1.Desc
 				return ocispecv1.Descriptor{}, err
 			}
 			desc.Platform = &p
+			log.WithField("platform", platforms.FormatAll(p)).Debug("descriptor created for platform")
 		}
 
 		index.Manifests = append(index.Manifests, desc)
@@ -108,7 +109,12 @@ func (m manifest) Push(ctx context.Context, pusher registry.Pusher) (ocispecv1.D
 	}
 
 	for _, d := range m.Descriptors {
-		desc, err := m.pushFile(ctx, pusher, d)
+		handler := m.pushFile
+		if reference.IsOCI(d.From) {
+			handler = m.mount
+		}
+
+		desc, err := handler(ctx, pusher, d)
 		if err != nil {
 			return ocispecv1.Descriptor{}, err
 		}
@@ -118,6 +124,24 @@ func (m manifest) Push(ctx context.Context, pusher registry.Pusher) (ocispecv1.D
 
 	log.WithField("layers_count", len(manifest.Layers)).Debug("committing manifest")
 	return commit(ctx, pusher, manifest, manifest.MediaType, manifest.ArtifactType)
+}
+
+func (m manifest) mount(ctx context.Context, pusher registry.Pusher, d Descriptor) (ocispecv1.Descriptor, error) {
+	log := logger.New("mount_repository")
+
+	ref := strings.TrimPrefix(d.From, reference.RegistryScheme.String())
+	parsedRef, err := reference.ParseRegistryReference(ref)
+	if err != nil {
+		return ocispecv1.Descriptor{}, err
+	}
+
+	desc, err := pusher.MountFrom(ctx, parsedRef)
+	if err != nil {
+		log.WithError(err).WithField("from", ref).Error("failed to mount repository")
+	} else {
+		log.WithField("from", ref).Debug("mounted repository")
+	}
+	return desc, err
 }
 
 func (m manifest) pushFile(ctx context.Context, pusher registry.Pusher, d Descriptor) (ocispecv1.Descriptor, error) {
@@ -150,9 +174,9 @@ func (m manifest) pushFile(ctx context.Context, pusher registry.Pusher, d Descri
 			log.WithError(err).WithFields(fields).Error("uploaded file failed")
 			return ocispecv1.Descriptor{}, err
 		}
-		log.WithFields(fields).Debug("file already uploaded")
+		log.WithFields(fields).Info("file already uploaded")
 	} else {
-		log.WithFields(fields).Debug("file uploaded")
+		log.WithFields(fields).Info("file uploaded")
 	}
 
 	return desc, nil

@@ -172,6 +172,9 @@ func handleItem(ctx context.Context, item Descriptor, opts builderOptions) ([]De
 	} else if reference.IsDir(item.From) {
 		handlerType = "Directory"
 		handler = walkDirHandler(item)
+	} else if reference.RegistryScheme.IsPrefix(item.From) {
+		handlerType = "OCI"
+		handler = ociHandler(item)
 	} else {
 		return nil, errors.New("unsupported source type: " + item.From)
 	}

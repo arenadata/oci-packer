@@ -19,7 +19,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,7 +35,7 @@ import (
 func newLayout(t *testing.T) *Layout {
 	t.Helper()
 	tmpDir := t.TempDir()
-	l, err := New(makeRef(tmpDir))
+	l, err := New(makeRef(tmpDir).String())
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
@@ -45,20 +44,25 @@ func newLayout(t *testing.T) *Layout {
 
 func newLayoutInDir(t *testing.T, dir string) *Layout {
 	t.Helper()
-	l, err := New(makeRef(dir))
+	l, err := New(makeRef(dir).String())
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
 	return l.(*Layout)
 }
 
-func makeRef(tmpDir string) string {
-	return fmt.Sprintf("%s%s:test:latest", reference.OciScheme, tmpDir)
+func makeRef(tmpDir string) reference.Reference {
+	return reference.Reference{
+		Scheme: reference.OciScheme,
+		Host:   "",
+		Path:   tmpDir,
+		Ref:    "test:latest",
+	}
 }
 
 func TestNewLayout(t *testing.T) {
 	tmpDir := t.TempDir()
-	layout, err := New(makeRef(tmpDir))
+	layout, err := New(makeRef(tmpDir).String())
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
@@ -101,7 +105,7 @@ func TestNew_WrongSchemeRejected(t *testing.T) {
 
 func TestNew_CreatesRequiredStructure(t *testing.T) {
 	dir := t.TempDir()
-	_, err := New(makeRef(dir))
+	_, err := New(makeRef(dir).String())
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
@@ -123,11 +127,11 @@ func TestNew_CreatesRequiredStructure(t *testing.T) {
 func TestNew_ExistingLayoutReused(t *testing.T) {
 	dir := t.TempDir()
 	// Create first time
-	if _, err := New(makeRef(dir)); err != nil {
+	if _, err := New(makeRef(dir).String()); err != nil {
 		t.Fatalf("first New() error: %v", err)
 	}
 	// Reopen — should succeed without re-initializing
-	if _, err := New(makeRef(dir)); err != nil {
+	if _, err := New(makeRef(dir).String()); err != nil {
 		t.Fatalf("second New() error: %v", err)
 	}
 }
@@ -138,7 +142,7 @@ func TestNew_InvalidOciLayoutFile(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, ocispecv1.ImageBlobsDir), 0755)
 	os.WriteFile(filepath.Join(dir, ocispecv1.ImageLayoutFile), []byte("not json"), 0640)
 
-	_, err := New(makeRef(dir))
+	_, err := New(makeRef(dir).String())
 	if err == nil {
 		t.Fatal("New() should fail for invalid oci-layout file")
 	}
@@ -150,7 +154,7 @@ func TestNew_WrongLayoutVersion(t *testing.T) {
 	bad, _ := json.Marshal(ocispecv1.ImageLayout{Version: "999.0"})
 	os.WriteFile(filepath.Join(dir, ocispecv1.ImageLayoutFile), bad, 0640)
 
-	_, err := New(makeRef(dir))
+	_, err := New(makeRef(dir).String())
 	if err == nil {
 		t.Fatal("New() should fail for unsupported layout version")
 	}
@@ -158,7 +162,7 @@ func TestNew_WrongLayoutVersion(t *testing.T) {
 
 func TestNew_UnpackOption_SetsArtifactType(t *testing.T) {
 	dir := t.TempDir()
-	l, err := New(makeRef(dir), Unpack())
+	l, err := New(makeRef(dir).String(), Unpack())
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
@@ -179,11 +183,11 @@ func TestNew_UnpackOption_SetsArtifactType(t *testing.T) {
 func TestNew_ExistingLayoutSetsUnpackFromIndex(t *testing.T) {
 	dir := t.TempDir()
 	// Create layout with unpack
-	if _, err := New(makeRef(dir), Unpack()); err != nil {
+	if _, err := New(makeRef(dir).String(), Unpack()); err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
 	// Reopen without Unpack() — should infer from index
-	l, err := New(makeRef(dir))
+	l, err := New(makeRef(dir).String())
 	if err != nil {
 		t.Fatalf("second New() error: %v", err)
 	}
@@ -246,7 +250,7 @@ func TestFetch_MissingBlob(t *testing.T) {
 		MediaType: "application/octet-stream",
 	}
 
-	_, err := l.Fetch(context.Background(), desc)
+	_, err := l.Fetch(context.Background(), reference.Reference{Ref: desc.Digest.String()})
 	if err == nil {
 		t.Fatal("Fetch() should fail for non-existent blob")
 	}
@@ -262,7 +266,7 @@ func TestFetch_ReturnsSameContent(t *testing.T) {
 		t.Fatalf("Push error: %v", err)
 	}
 
-	rc, err := l.Fetch(context.Background(), desc)
+	rc, err := l.Fetch(context.Background(), reference.Reference{Ref: desc.Digest.String()})
 	if err != nil {
 		t.Fatalf("Fetch error: %v", err)
 	}
@@ -277,7 +281,7 @@ func TestFetch_ReturnsSameContent(t *testing.T) {
 
 func TestPushAndFetch(t *testing.T) {
 	tmpDir := t.TempDir()
-	layout, err := New(makeRef(tmpDir))
+	layout, err := New(makeRef(tmpDir).String())
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
@@ -298,7 +302,7 @@ func TestPushAndFetch(t *testing.T) {
 	}
 
 	// Fetch the blob
-	reader, err := layout.Fetch(nil, desc)
+	reader, err := layout.Fetch(nil, reference.Reference{Ref: desc.Digest.String()})
 	if err != nil {
 		t.Errorf("Fetch() failed: %v", err)
 	}
@@ -321,7 +325,7 @@ func TestPushAndFetch(t *testing.T) {
 
 func TestSetTag(t *testing.T) {
 	tmpDir := t.TempDir()
-	layout, err := New(makeRef(tmpDir))
+	layout, err := New(makeRef(tmpDir).String())
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
@@ -467,7 +471,7 @@ func TestResolve_FoundAfterSetTag(t *testing.T) {
 
 func TestExists(t *testing.T) {
 	tmpDir := t.TempDir()
-	layout, err := New(makeRef(tmpDir))
+	layout, err := New(makeRef(tmpDir).String())
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
@@ -487,7 +491,7 @@ func TestExists(t *testing.T) {
 	}
 
 	// Check if blob exists
-	exists, err := layout.Exists(nil, "")
+	exists, err := layout.Exists(nil, reference.Reference{})
 	if err != nil {
 		t.Errorf("Exists() failed: %v", err)
 	}
@@ -499,7 +503,7 @@ func TestExists(t *testing.T) {
 
 func TestExists_ReturnsFalseForEmpty(t *testing.T) {
 	l := newLayout(t)
-	exists, err := l.Exists(context.Background(), "")
+	exists, err := l.Exists(context.Background(), reference.Reference{})
 	if err != nil {
 		t.Fatalf("Exists() unexpected error: %v", err)
 	}
@@ -513,7 +517,7 @@ func TestExists_ReturnsFalseForEmpty(t *testing.T) {
 
 func TestGetBlobPath(t *testing.T) {
 	tmpDir := t.TempDir()
-	layout, err := New(makeRef(tmpDir))
+	layout, err := New(makeRef(tmpDir).String())
 	if err != nil {
 		t.Fatalf("New() failed: %v", err)
 	}
@@ -552,18 +556,5 @@ func TestGetBlobPath_ContainsHex(t *testing.T) {
 	}
 	if filepath.Base(blobPath) != dgst.Hex() {
 		t.Errorf("getBlobPath() base = %q, want hex %q", filepath.Base(blobPath), dgst.Hex())
-	}
-}
-
-func TestMount(t *testing.T) {
-	tmpDir := t.TempDir()
-	layout, err := New(makeRef(tmpDir))
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
-
-	err = layout.Mount(nil, "")
-	if err != nil {
-		t.Errorf("Mount() should return an error for OCI Layout")
 	}
 }

@@ -17,45 +17,10 @@ package reference
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/opencontainers/go-digest"
 )
-
-type Schema string
-
-func (s Schema) String() string { return fmt.Sprintf("%s://", string(s)) }
-
-func (s Schema) IsPrefix(v string) bool {
-	return strings.HasPrefix(v, s.String())
-}
-
-func (s Schema) Eq(v string) bool {
-	return string(s) == v
-}
-
-const (
-	OciScheme      Schema = "oci"
-	RegistryScheme Schema = "cr"
-	DirSchema      Schema = "dir"
-	FileSchema     Schema = "file"
-	S3Schema       Schema = "s3"
-	S3httpSchema   Schema = "s3+http"
-	HttpSchema     Schema = "http"
-	HttpsSchema    Schema = "https"
-)
-
-var isRemoteScheme = map[Schema]bool{
-	OciScheme:      false,
-	DirSchema:      false,
-	FileSchema:     false,
-	RegistryScheme: true,
-	S3Schema:       true,
-	S3httpSchema:   true,
-	HttpSchema:     true,
-	HttpsSchema:    true,
-}
 
 var (
 	// ErrInvalid is returned when there is an invalid reference
@@ -67,62 +32,70 @@ var (
 	ErrHostnameRequired = errors.New("hostname required")
 )
 
-type Reference struct {
-	Scheme Schema
-	Host   string
-	Path   string
-	Ref    string
-}
-
 func Parse(s string) (Reference, error) {
-	if len(s) == 0 {
-		return Reference{}, ErrInvalid
+	scheme, imagePathWithRef, err := splitScheme(s)
+	if err != nil {
+		return Reference{}, err
 	}
 
-	urlParts := strings.SplitN(s, "://", 2)
-	if len(urlParts) != 2 {
-		return Reference{}, ErrSchemeRequired
-	}
-
-	scheme, imageRef := urlParts[0], urlParts[1]
-	if len(scheme) == 0 {
-		return Reference{}, ErrSchemeRequired
-	}
 	if !OciScheme.Eq(scheme) && !RegistryScheme.Eq(scheme) {
 		return Reference{}, ErrSchemeUnsupported
 	}
 
-	return parsePath(scheme, imageRef)
+	return parse(scheme, imagePathWithRef)
 }
 
-func parsePath(scheme, imageRef string) (Reference, error) {
+func splitScheme(s string) (string, string, error) {
+	if len(s) == 0 {
+		return "", "", ErrInvalid
+	}
+
+	urlParts := strings.SplitN(s, "://", 2)
+	if len(urlParts) != 2 {
+		return "", "", ErrSchemeRequired
+	}
+
+	scheme, imagePathWithRef := urlParts[0], urlParts[1]
+	if len(scheme) == 0 {
+		return "", "", ErrSchemeRequired
+	}
+
+	if _, ok := isRemoteScheme[Schema(scheme)]; !ok {
+		return "", "", ErrSchemeUnsupported
+	}
+
+	return scheme, imagePathWithRef, nil
+}
+
+func parse(scheme, imagePathWithRef string) (Reference, error) {
 	var ref Reference
 
-	if strings.Contains(imageRef, "//") {
+	if strings.Contains(imagePathWithRef, "//") {
 		return ref, ErrInvalid
 	}
-	if isRemoteScheme[Schema(scheme)] {
-		idx := strings.IndexByte(imageRef, '/')
+
+	if RegistryScheme.Eq(scheme) {
+		idx := strings.IndexByte(imagePathWithRef, '/')
 		if idx == -1 {
-			ref.Path = imageRef
+			ref.Path = imagePathWithRef
 		} else {
-			ref.Host = imageRef[:idx]
+			ref.Host = imagePathWithRef[:idx]
 			if len(ref.Host) == 0 {
 				return ref, ErrHostnameRequired
 			}
-			imageRef = strings.TrimPrefix(imageRef[idx+1:], "/")
+			imagePathWithRef = strings.TrimPrefix(imagePathWithRef[idx+1:], "/")
 		}
 	}
 
 	ref.Scheme = Schema(scheme)
 
-	idx := strings.IndexAny(imageRef, "@:")
+	idx := strings.IndexAny(imagePathWithRef, "@:")
 	if idx == -1 {
-		ref.Path, ref.Ref = imageRef, "latest"
+		ref.Path, ref.Ref = imagePathWithRef, "latest"
 	} else {
-		ref.Path, ref.Ref = imageRef[:idx], imageRef[idx+1:]
+		ref.Path, ref.Ref = imagePathWithRef[:idx], imagePathWithRef[idx+1:]
 
-		if imageRef[idx] == '@' {
+		if imagePathWithRef[idx] == '@' {
 			if _, err := digest.Parse(ref.Ref); err != nil {
 				return Reference{}, ErrInvalid
 			}
@@ -136,39 +109,27 @@ func parsePath(scheme, imageRef string) (Reference, error) {
 	return ref, nil
 }
 
-func (r Reference) String() string {
-	sep := ":"
-	if _, err := digest.Parse(r.Ref); err == nil {
-		sep = "@"
-	}
-	if OciScheme.Eq(string(r.Scheme)) {
-		return strings.Join([]string{string(r.Scheme), r.Path, sep, r.Ref}, "")
-	}
-	return fmt.Sprintf("%s%s/%s%s%s", r.Scheme, r.Host, r.Path, sep, r.Ref)
-}
-
-func ParseRegistryReference(repoRef Reference, ref string) (Reference, error) {
+func ParseRegistryReference(ref string) (Reference, error) {
 	if len(ref) > 0 && !isDigest(ref) && strings.ContainsAny(ref, "@:") {
 		// [cr://registry.host/[repo/]]image[:tag|@digest]
 		var err error
 		var parsedReference Reference
 		if idx := strings.Index(ref, "://"); idx > -1 {
-			if !RegistryScheme.IsPrefix(ref) {
+			if !RegistryScheme.IsPrefix(ref) && !OciScheme.IsPrefix(ref) {
 				return Reference{}, ErrSchemeUnsupported
 			}
 			parsedReference, err = Parse(ref)
 		} else {
-			parsedReference, err = parsePath(string(RegistryScheme), ref)
+			parsedReference, err = parse(string(RegistryScheme), ref)
 		}
 		if err != nil {
 			return Reference{}, err
 		}
 
-		repoRef.Path = parsedReference.Path
-		repoRef.Ref = parsedReference.Ref
-		return repoRef, nil
+		return parsedReference, nil
 	}
 
+	var repoRef Reference
 	if len(ref) > 0 {
 		// tag or digest
 		repoRef.Ref = ref

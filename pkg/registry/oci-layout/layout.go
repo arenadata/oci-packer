@@ -46,6 +46,15 @@ const (
 
 var log = logger.New("oci_layout")
 
+type zstdReader struct {
+	*zstd.Decoder
+}
+
+func (z zstdReader) Close() error {
+	z.Decoder.Close()
+	return nil
+}
+
 type Option func(*Layout)
 
 func Unpack() Option {
@@ -60,45 +69,54 @@ type Layout struct {
 }
 
 func New(ref string, opts ...Option) (registry.Resolver, error) {
-	imageRef, err := reference.Parse(ref)
+	parsedRef, err := reference.Parse(ref)
 	if err != nil {
 		return nil, err
 	}
 
-	if imageRef.Scheme != reference.OciScheme {
+	if parsedRef.Scheme != reference.OciScheme {
 		return nil, reference.ErrSchemeUnsupported
 	}
 
-	layout := &Layout{ref: imageRef}
+	layoutFile := filepath.Join(parsedRef.Path, ocispecv1.ImageLayoutFile)
+	if _, err = os.Stat(layoutFile); err != nil {
+		layout := &Layout{ref: parsedRef}
+		for _, opt := range opts {
+			opt(layout)
+		}
+		if err = layout.new(); err != nil {
+			return nil, err
+		}
+
+		return layout, nil
+	}
+
+	return Open(parsedRef, opts...)
+}
+
+func Open(ref reference.Reference, opts ...Option) (registry.Resolver, error) {
+	layout := &Layout{ref: ref}
 	for _, opt := range opts {
 		opt(layout)
 	}
 
-	log.WithFields(map[string]any{"path": imageRef.Path, "unpack": layout.unpack}).Debug("OCI layout initialized")
-
-	layoutFile := filepath.Join(imageRef.Path, ocispecv1.ImageLayoutFile)
-	_, err = os.Stat(layoutFile)
-	if err != nil {
-		if err = layout.new(); err != nil {
-			return nil, err
-		}
-	} else {
-		if err = layout.validate(); err != nil {
-			return nil, err
-		}
-
-		index, err := layout.readIndex()
-		if err != nil {
-			return nil, err
-		}
-
-		layout.unpack = index.ArtifactType == MediaTypeUnpackLayout
+	if err := layout.validate(); err != nil {
+		return nil, err
 	}
+
+	index, err := layout.readIndex()
+	if err != nil {
+		return nil, err
+	}
+
+	layout.unpack = index.ArtifactType == MediaTypeUnpackLayout
 
 	return layout, nil
 }
 
 func (l Layout) new() error {
+	log.WithFields(map[string]any{"path": l.ref.Path, "unpack": l.unpack}).Debug("new OCI layout initialized")
+
 	layoutFile := filepath.Join(l.ref.Path, ocispecv1.ImageLayoutFile)
 	blobsDir := filepath.Join(l.ref.Path, ocispecv1.ImageBlobsDir)
 
@@ -171,20 +189,15 @@ func (l Layout) writeIndex(index *ocispecv1.Index) error {
 	return atomic.WriteFile(indexPath, bytes.NewReader(indexData))
 }
 
-func (l Layout) Resolve(_ context.Context, ref string) (ocispecv1.Descriptor, error) {
+func (l Layout) Resolve(_ context.Context, ref reference.Reference) (ocispecv1.Descriptor, error) {
 	index, err := l.readIndex()
 	if err != nil {
 		return ocispecv1.Descriptor{}, err
 	}
 
-	repoRef, err := reference.Parse(ref)
-	if err != nil {
-		return ocispecv1.Descriptor{}, err
-	}
-
+	repoRef := l.ref.Merge(ref)
 	for _, manifest := range index.Manifests {
 		r := manifest.Annotations[ocispecv1.AnnotationRefName]
-		fmt.Println("----", r)
 		if r == repoRef.Ref {
 			return manifest, nil
 		}
@@ -193,46 +206,98 @@ func (l Layout) Resolve(_ context.Context, ref string) (ocispecv1.Descriptor, er
 	return ocispecv1.Descriptor{}, fmt.Errorf("no manifests found in index")
 }
 
-func (l Layout) Exists(ctx context.Context, ref string) (bool, error) {
+func (l Layout) Exists(ctx context.Context, ref reference.Reference) (bool, error) {
 	desc, err := l.Resolve(ctx, ref)
 	if err != nil {
 		return false, nil
 	}
 
-	blobPath := l.getBlobPath(desc.Digest)
-	_, err = os.Stat(blobPath)
-	return err == nil, nil
+	return l.exists(ctx, desc)
 }
 
-func (l Layout) Mount(context.Context, string) error {
-	return nil
+func (l Layout) exists(_ context.Context, desc ocispecv1.Descriptor) (bool, error) {
+	blobPath := l.getBlobPath(desc.Digest)
+	st, err := os.Stat(blobPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if l.unpack && st.IsDir() {
+		return true, nil
+	}
+	return st.Size() == desc.Size, nil
 }
 
-func (l Layout) Fetch(_ context.Context, desc ocispecv1.Descriptor) (io.ReadCloser, error) {
-	blobPath := l.getBlobPath(desc.Digest)
+func (l Layout) FetchReference(ctx context.Context, ref reference.Reference) (ocispecv1.Descriptor, io.ReadCloser, error) {
+	desc, err := l.Resolve(ctx, ref)
+	if err != nil {
+		return ocispecv1.Descriptor{}, nil, err
+	}
+
+	ref.Ref = desc.Digest.String()
+	r, err := l.Fetch(ctx, ref)
+	if err != nil {
+		return ocispecv1.Descriptor{}, nil, err
+	}
+
+	return desc, r, nil
+}
+
+func (l Layout) Fetch(_ context.Context, ref reference.Reference) (io.ReadCloser, error) {
+	dgst, err := digest.Parse(ref.Ref)
+	if err != nil {
+		return nil, err
+	}
+
+	blobPath := l.getBlobPath(dgst)
 
 	if l.unpack {
-		return archive.Tar(blobPath, compression.None)
+		desc := ref.Descriptor()
+		switch desc.MediaType {
+		case ocispecv1.MediaTypeImageLayer:
+			return archive.Tar(blobPath, compression.None)
+		case ocispecv1.MediaTypeImageLayerGzip, images.MediaTypeDockerSchema2LayerGzip:
+			r, err := archive.Tar(blobPath, compression.None)
+			if err != nil {
+				return nil, err
+			}
+			return gzip.NewReader(r)
+
+		case ocispecv1.MediaTypeImageLayerZstd, images.MediaTypeDockerSchema2LayerZstd:
+			r, err := archive.Tar(blobPath, compression.None)
+			if err != nil {
+				return nil, err
+			}
+			zstdr, err := zstd.NewReader(r)
+			if err != nil {
+				return nil, fmt.Errorf("creating zstd reader failed: %w", err)
+			}
+			return zstdReader{zstdr}, nil
+		}
 	}
 
 	file, err := os.Open(blobPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open blob '%s': %w", desc.Digest, err)
+		return nil, fmt.Errorf("failed to open blob '%s': %w", dgst, err)
 	}
 	return file, nil
 }
 
-func (l Layout) Push(_ context.Context, desc ocispecv1.Descriptor, r io.Reader) error {
-	return l.push(desc, r)
-}
-
-func (l Layout) push(desc ocispecv1.Descriptor, r io.Reader) error {
+func (l Layout) Push(ctx context.Context, desc ocispecv1.Descriptor, r io.Reader) error {
 	log.WithFields(map[string]any{
 		"digest":     desc.Digest,
 		"media_type": desc.MediaType,
 		"size":       desc.Size,
 		"unpack":     l.unpack,
 	}).Debug("pushing to layout")
+
+	if ok, err := l.exists(ctx, desc); err != nil {
+		return err
+	} else if ok {
+		return registry.ErrAlreadyExists
+	}
 
 	switch desc.MediaType {
 	case ocispecv1.MediaTypeImageLayer:
@@ -332,4 +397,12 @@ func (l Layout) getBlobPath(dgst digest.Digest) string {
 	algo := dgst.Algorithm().String()
 	hex := dgst.Hex()
 	return filepath.Join(l.ref.Path, ocispecv1.ImageBlobsDir, algo, hex)
+}
+
+func (l Layout) MountFrom(ctx context.Context, ref reference.Reference) (ocispecv1.Descriptor, error) {
+	desc, err := l.Resolve(ctx, ref)
+	if err != nil {
+		return ocispecv1.Descriptor{}, err
+	}
+	return desc, nil
 }

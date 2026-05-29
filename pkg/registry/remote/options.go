@@ -25,6 +25,19 @@ func WithPlainHttp() Option {
 	}
 }
 
+func WithInsecure() Option {
+	return func(c *Client) {
+		c.insecure = true
+	}
+}
+
+func WithCreds(login, password string) Option {
+	return func(c *Client) {
+		c.login = login
+		c.password = password
+	}
+}
+
 func WithClient(client *http.Client) Option {
 	return func(c *Client) {
 		c.client = client

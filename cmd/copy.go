@@ -33,7 +33,7 @@ var copyCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(copyCmd)
 
-	copyCmd.Flags().Bool("unpack", false, "Create OCI layout with unpack Layers")
+	copyCmd.Flags().Bool("unpack", false, "Use OCI layout with unpack Layers")
 }
 
 func copyCmdRun(cmd *cobra.Command, args []string) {
@@ -42,6 +42,11 @@ func copyCmdRun(cmd *cobra.Command, args []string) {
 	log := logger.New("copy")
 	log.WithFields(map[string]any{"src": src, "dst": dst}).Debug("determining source and destination references")
 
+	var layoutOpts []layout.Option
+	if ok, _ := cmd.Flags().GetBool("unpack"); ok {
+		layoutOpts = append(layoutOpts, layout.Unpack())
+	}
+
 	var err error
 	var srcRepo, dstRepo registry.Resolver
 	var srcType, dstType string
@@ -49,7 +54,7 @@ func copyCmdRun(cmd *cobra.Command, args []string) {
 	if reference.OciScheme.IsPrefix(src) {
 		srcType, dstType = "OCI Layout", "Remote Registry"
 
-		srcRepo, err = layout.New(src)
+		srcRepo, err = layout.New(src, layoutOpts...)
 		if err != nil {
 			log.WithError(err).WithField("src", src).Fatal("failed to create OCI layout source")
 		}
@@ -66,7 +71,7 @@ func copyCmdRun(cmd *cobra.Command, args []string) {
 			log.WithError(err).WithField("src", src).Fatal("failed to create remote registry destination")
 		}
 
-		dstRepo, err = layout.New(dst)
+		dstRepo, err = layout.New(dst, layoutOpts...)
 		if err != nil {
 			log.WithError(err).WithField("dst", dst).Fatal("failed to create OCI layout source")
 		}
@@ -74,7 +79,7 @@ func copyCmdRun(cmd *cobra.Command, args []string) {
 
 	log.WithFields(map[string]any{"src_type": srcType, "dst_type": dstType}).Debug("resolvers initialized")
 
-	desc, err := srcRepo.Resolve(cmd.Context(), "")
+	desc, err := srcRepo.Resolve(cmd.Context(), reference.Reference{})
 	if err != nil {
 		log.WithError(err).WithField("src", src).Fatal("failed to resolve source reference")
 	}
@@ -90,5 +95,5 @@ func copyCmdRun(cmd *cobra.Command, args []string) {
 			Fatal("failed to set tag in destination")
 	}
 
-	log.Info(nil, "copy operation completed successfully")
+	log.Info("copy operation completed successfully")
 }

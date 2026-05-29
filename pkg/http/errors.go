@@ -31,7 +31,7 @@ type ErrUnexpectedStatus struct {
 	RequestMethod string `json:"requestMethod,omitempty"`
 }
 
-func (e ErrUnexpectedStatus) Error() string {
+func (e *ErrUnexpectedStatus) Error() string {
 	return fmt.Sprintf("unexpected status from %s request to %s: %s", e.RequestMethod, e.RequestURL, e.Status)
 }
 
@@ -39,9 +39,9 @@ func (e ErrUnexpectedStatus) Error() string {
 func NewUnexpectedStatusErr(resp *http.Response) error {
 	var b []byte
 	if resp.Body != nil {
-		b, _ = io.ReadAll(io.LimitReader(resp.Body, 64000)) // 64KB
+		b, _ = io.ReadAll(io.LimitReader(resp.Body, 65536)) // 64KiB
 	}
-	err := ErrUnexpectedStatus{
+	err := &ErrUnexpectedStatus{
 		Body:          b,
 		Status:        resp.Status,
 		StatusCode:    resp.StatusCode,
@@ -54,7 +54,7 @@ func NewUnexpectedStatusErr(resp *http.Response) error {
 }
 
 func IsNotFound(e error) bool {
-	err, ok := errors.AsType[ErrUnexpectedStatus](e)
+	err, ok := errors.AsType[*ErrUnexpectedStatus](e)
 	if !ok {
 		return false
 	}

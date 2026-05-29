@@ -22,7 +22,6 @@ import (
 	"github.com/arenadata/oci-packer"
 	"github.com/arenadata/oci-packer/internal/logger"
 	"github.com/arenadata/oci-packer/internal/version"
-	packerhttp "github.com/arenadata/oci-packer/pkg/http"
 	"github.com/arenadata/oci-packer/pkg/registry"
 	"github.com/arenadata/oci-packer/pkg/registry/remote"
 	"github.com/spf13/cobra"
@@ -107,7 +106,8 @@ func packRun(cmd *cobra.Command, args []string) {
 
 	logFields := map[string]any{"reference": ref, "digest": desc.Digest}
 	if err = repoClient.SetTag(cmd.Context(), desc); err != nil {
-		log.WithError(err).WithFields(logFields).Fatal("failed to set tag in registry")
+		log.WithError(err).WithFields(logFields).Fatal("failed to set tag to repository")
+		return
 	}
 
 	log.WithFields(logFields).Debug("tag set successfully")
@@ -126,26 +126,15 @@ func remoteClientFromCommandArguments(cmd *cobra.Command, ref string) (registry.
 		"login":      login,
 		"plain-http": plainHttp,
 		"insecure":   insecure,
-	}, "authentication credentials configured")
+	}, "configure remote client")
 
-	var opts []remote.Option
+	opts := []remote.Option{remote.WithCreds(login, password)}
 	if plainHttp {
 		opts = append(opts, remote.WithPlainHttp())
 	}
-
-	var httpOptions []packerhttp.Option
 	if insecure {
-		httpOptions = append(httpOptions, packerhttp.WithInsecure())
+		opts = append(opts, remote.WithInsecure())
 	}
-
-	if len(login) > 0 {
-		httpOptions = append(httpOptions, packerhttp.WithAuthCreds(func(string) (string, string, error) {
-			return login, password, nil
-		}))
-	}
-
-	packerClient := packerhttp.New(httpOptions...)
-	opts = append(opts, remote.WithClient(packerClient))
 
 	return remote.New(ref, opts...)
 }

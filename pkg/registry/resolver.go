@@ -19,14 +19,14 @@ import (
 	"context"
 	"io"
 
+	"github.com/arenadata/oci-packer/pkg/registry/reference"
 	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // Resolver provides remotes based on a locator.
 type Resolver interface {
-	Resolve(ctx context.Context, ref string) (ocispecv1.Descriptor, error)
-	Exists(ctx context.Context, ref string) (bool, error)
-	Mount(ctx context.Context, ref string) error
+	Resolve(ctx context.Context, ref reference.Reference) (ocispecv1.Descriptor, error)
+	Exists(ctx context.Context, ref reference.Reference) (bool, error)
 
 	Fetcher
 	Pusher
@@ -34,12 +34,14 @@ type Resolver interface {
 
 // Fetcher fetches content.
 type Fetcher interface {
+	FetchReference(ctx context.Context, ref reference.Reference) (ocispecv1.Descriptor, io.ReadCloser, error)
 	// Fetch the resource identified by the descriptor.
-	Fetch(ctx context.Context, desc ocispecv1.Descriptor) (io.ReadCloser, error)
+	Fetch(ctx context.Context, ref reference.Reference) (io.ReadCloser, error)
 }
 
 // Pusher pushes content
 type Pusher interface {
+	MountFrom(ctx context.Context, ref reference.Reference) (ocispecv1.Descriptor, error)
 	Push(ctx context.Context, desc ocispecv1.Descriptor, r io.Reader) error
 	SetTag(ctx context.Context, desc ocispecv1.Descriptor) error
 }

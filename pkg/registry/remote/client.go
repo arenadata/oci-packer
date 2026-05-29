@@ -51,57 +51,68 @@ type Client struct {
 
 	plainHttp bool
 	insecure  bool
+
+	login    string
+	password string
 }
 
 func New(ref string, opts ...Option) (registry.Resolver, error) {
-	cl := new(Client)
-	for _, opt := range opts {
-		opt(cl)
-	}
-
-	cl.client = packerhttp.New()
-
-	var err error
-	cl.ref, err = reference.Parse(ref)
+	parsedRef, err := reference.Parse(ref)
 	if err != nil {
 		return nil, err
 	}
 
-	if cl.ref.Scheme != reference.RegistryScheme {
+	return NewRegistryClient(parsedRef, opts...)
+}
+
+func NewRegistryClient(ref reference.Reference, opts ...Option) (registry.Resolver, error) {
+	if ref.Scheme != reference.RegistryScheme {
 		return nil, reference.ErrSchemeUnsupported
 	}
 
+	cl := &Client{ref: ref}
+	for _, opt := range opts {
+		opt(cl)
+	}
+
+	if cl.client == nil {
+		var clientOpts []packerhttp.Option
+		if cl.insecure {
+			clientOpts = append(clientOpts, packerhttp.WithInsecure())
+		}
+		if len(cl.login) > 0 {
+			clientOpts = append(clientOpts, packerhttp.WithAuthCreds(func(string) (string, string, error) {
+				return cl.login, cl.password, nil
+			}))
+		}
+		cl.client = packerhttp.New(clientOpts...)
+	}
 	return cl, nil
 }
 
-func (c Client) urlFromReference(ref string) (registryUrl, error) {
-	repoRef, err := reference.ParseRegistryReference(c.ref, ref)
-	if err != nil {
-		return registryUrl{}, err
-	}
-
-	return fromRef(repoRef, c.plainHttp), nil
+func (c Client) urlFromReference(ref reference.Reference) (reference.Url, error) {
+	return c.ref.Merge(ref).URL(c.plainHttp), nil
 }
 
-func (c Client) Resolve(ctx context.Context, ref string) (ocispecv1.Descriptor, error) {
+func (c Client) Resolve(ctx context.Context, ref reference.Reference) (ocispecv1.Descriptor, error) {
 	desc, _, err := c.resolve(ctx, ref)
 	return desc, err
 }
 
-func (c Client) resolve(ctx context.Context, ref string) (ocispecv1.Descriptor, registryUrl, error) {
+func (c Client) resolve(ctx context.Context, ref reference.Reference) (ocispecv1.Descriptor, reference.Url, error) {
 	repoUrl, err := c.urlFromReference(ref)
 	if err != nil {
-		return ocispecv1.Descriptor{}, registryUrl{}, err
+		return ocispecv1.Descriptor{}, reference.Url{}, err
 	}
 
-	resp, err := c.resolveRef(ctx, repoUrl.manifests(), packerhttp.WithAccept(resolveHeaders...))
+	resp, err := c.resolveRef(ctx, repoUrl.Manifests(), packerhttp.WithAccept(resolveHeaders...))
 	if err != nil {
-		return ocispecv1.Descriptor{}, registryUrl{}, err
+		return ocispecv1.Descriptor{}, reference.Url{}, err
 	}
 
 	dgst, err := digest.Parse(resp.Header.Get("Docker-Content-Digest"))
 	if err != nil {
-		return ocispecv1.Descriptor{}, registryUrl{}, err
+		return ocispecv1.Descriptor{}, reference.Url{}, err
 	}
 
 	return ocispecv1.Descriptor{
@@ -142,13 +153,13 @@ func (c Client) resolveRef(ctx context.Context, url string, opts ...packerhttp.R
 	return resp, nil
 }
 
-func (c Client) Exists(ctx context.Context, ref string) (bool, error) {
+func (c Client) Exists(ctx context.Context, ref reference.Reference) (bool, error) {
 	repoUrl, err := c.urlFromReference(ref)
 	if err != nil {
 		return false, err
 	}
 
-	if _, err = c.resolveRef(ctx, repoUrl.blobs()); err != nil {
+	if _, err = c.resolveRef(ctx, repoUrl.Blobs()); err != nil {
 		if !packerhttp.IsNotFound(err) {
 			log.WithError(err).Error("failed to resolve reference")
 			return false, err
@@ -158,13 +169,17 @@ func (c Client) Exists(ctx context.Context, ref string) (bool, error) {
 	return true, nil
 }
 
-func (c Client) Mount(ctx context.Context, ref string) error {
+func (c Client) MountFrom(ctx context.Context, ref reference.Reference) (ocispecv1.Descriptor, error) {
 	desc, repoUrl, err := c.resolve(ctx, ref)
 	if err != nil {
-		return err
+		return ocispecv1.Descriptor{}, err
 	}
 
-	return c.mountDescriptor(ctx, desc, repoUrl.Path)
+	if err = c.mountDescriptor(ctx, desc, repoUrl.Path()); err != nil {
+		return ocispecv1.Descriptor{}, err
+	}
+
+	return desc, nil
 }
 
 func (c Client) mountDescriptor(ctx context.Context, desc ocispecv1.Descriptor, from string) error {
@@ -190,8 +205,8 @@ func (c Client) mountDescriptor(ctx context.Context, desc ocispecv1.Descriptor, 
 	repoRef.Path = from
 	repoRef.Ref = desc.Digest.String()
 
-	repoUrl := fromRef(repoRef, c.plainHttp)
-	resp, err := c.client.Post(ctx, repoUrl.mount(desc.Digest, from), nil, packerhttp.WithContentType(desc.MediaType))
+	repoUrl := repoRef.URL(c.plainHttp)
+	resp, err := c.client.Post(ctx, repoUrl.Mount(desc.Digest, from), nil, packerhttp.WithContentType(desc.MediaType))
 	if err != nil {
 		return err
 	}
@@ -232,7 +247,10 @@ func (c Client) mountManifest(ctx context.Context, desc ocispecv1.Descriptor, fr
 }
 
 func (c Client) fetchJson(ctx context.Context, desc ocispecv1.Descriptor, v any) error {
-	reader, err := c.Fetch(ctx, desc)
+	repoRef := c.ref
+	repoRef.Path = desc.Digest.String()
+
+	reader, err := c.Fetch(ctx, repoRef)
 	if err != nil {
 		return err
 	}
@@ -240,12 +258,36 @@ func (c Client) fetchJson(ctx context.Context, desc ocispecv1.Descriptor, v any)
 	return json.NewDecoder(reader).Decode(v)
 }
 
-func (c Client) Fetch(ctx context.Context, desc ocispecv1.Descriptor) (io.ReadCloser, error) {
-	repoRef := c.ref
-	repoRef.Ref = desc.Digest.String()
+func (c Client) FetchReference(ctx context.Context, ref reference.Reference) (ocispecv1.Descriptor, io.ReadCloser, error) {
+	fields := map[string]any{"image": ref.Path, "reference": ref.Ref}
+	log.WithFields(fields).Debug("fetching reference")
 
-	repoUrl := fromRef(repoRef, c.plainHttp)
-	resp, err := c.client.Get(ctx, repoUrl.blobs())
+	desc, _, err := c.resolve(ctx, ref)
+	if err != nil {
+		return ocispecv1.Descriptor{}, nil, err
+	}
+
+	fields["digest"] = desc.Digest
+	fields["size"] = desc.Size
+	log.WithFields(fields).Debug("reference found")
+
+	repoUrl := c.ref.Merge(ref).URL(c.plainHttp)
+	resp, err := c.client.Get(ctx, repoUrl.Manifests(), packerhttp.WithAccept(desc.MediaType))
+	if err != nil {
+		return ocispecv1.Descriptor{}, nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return ocispecv1.Descriptor{}, nil, packerhttp.NewUnexpectedStatusErr(resp)
+	}
+
+	return desc, resp.Body, nil
+}
+
+func (c Client) Fetch(ctx context.Context, ref reference.Reference) (io.ReadCloser, error) {
+	repoUrl := c.ref.Merge(ref).URL(c.plainHttp)
+	resp, err := c.client.Get(ctx, repoUrl.Blobs())
 	if err != nil {
 		return nil, err
 	}
@@ -261,18 +303,19 @@ func (c Client) Fetch(ctx context.Context, desc ocispecv1.Descriptor) (io.ReadCl
 func (c Client) Push(ctx context.Context, desc ocispecv1.Descriptor, r io.Reader) error {
 	log.WithFields(map[string]any{"digest": desc.Digest, "size": desc.Size}).Debug("pushing blob")
 
-	if ok, err := c.Exists(ctx, desc.Digest.String()); err != nil {
+	ref := reference.Reference{Ref: desc.Digest.String()}
+	if ok, err := c.Exists(ctx, ref); err != nil {
 		return err
 	} else if ok {
 		return registry.ErrAlreadyExists
 	}
 
-	repoUrl, err := c.urlFromReference("")
+	repoUrl, err := c.urlFromReference(reference.Reference{})
 	if err != nil {
 		return err
 	}
 
-	resp, err := c.client.Post(ctx, repoUrl.uploads(), nil)
+	resp, err := c.client.Post(ctx, repoUrl.Uploads(), nil)
 	if err != nil {
 		return err
 	}
@@ -287,7 +330,7 @@ func (c Client) Push(ctx context.Context, desc ocispecv1.Descriptor, r io.Reader
 		return err
 	}
 
-	u := repoUrl.uploadsUrl()
+	u := repoUrl.UploadsUrl()
 	u.Path = location.Path
 
 	val := location.Query()
@@ -322,16 +365,19 @@ func (c Client) SetTag(ctx context.Context, desc ocispecv1.Descriptor) error {
 		return fmt.Errorf("unsupported media type: %s", desc.MediaType)
 	}
 
-	r, err := c.Fetch(ctx, desc)
+	repoRef := c.ref
+	repoRef.Ref = desc.Digest.String()
+
+	r, err := c.Fetch(ctx, repoRef)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = r.Close() }()
 
-	repoUrl, _ := c.urlFromReference("")
-	log.WithFields(map[string]any{"url": repoUrl.manifests(), "digest": desc.Digest}).Debug("setting tag")
+	repoUrl, _ := c.urlFromReference(reference.Reference{})
+	log.WithFields(map[string]any{"url": repoUrl.Manifests(), "digest": desc.Digest}).Debug("setting tag")
 
-	resp, err := c.client.Put(ctx, repoUrl.manifests(), r, packerhttp.WithContentType(desc.MediaType))
+	resp, err := c.client.Put(ctx, repoUrl.Manifests(), r, packerhttp.WithContentType(desc.MediaType))
 	if err != nil {
 		return err
 	}

@@ -167,15 +167,16 @@ func TestParseRegistryReference_SimpleTag(t *testing.T) {
 		Path:   "library/nginx",
 		Ref:    "latest",
 	}
-	result, err := ParseRegistryReference(base, "v1.2.3")
+	parsedRef, err := ParseRegistryReference("v1.2.3")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	result := base.Merge(parsedRef)
 	if result.Ref != "v1.2.3" {
-		t.Errorf("Ref = %q, want v1.2.3", result.Ref)
+		t.Errorf("Ref = %q, want v1.2.3", parsedRef.Ref)
 	}
 	if result.Host != base.Host {
-		t.Errorf("Host changed unexpectedly: %q", result.Host)
+		t.Errorf("Host changed unexpectedly: %q", parsedRef.Host)
 	}
 }
 
@@ -186,10 +187,11 @@ func TestParseRegistryReference_EmptyRefKeepsBase(t *testing.T) {
 		Path:   "library/nginx",
 		Ref:    "stable",
 	}
-	result, err := ParseRegistryReference(base, "")
+	parsedRef, err := ParseRegistryReference("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	result := base.Merge(parsedRef)
 	if result.Ref != "stable" {
 		t.Errorf("Ref = %q, want stable (unchanged)", result.Ref)
 	}
@@ -202,10 +204,11 @@ func TestParseRegistryReference_FullCRRef(t *testing.T) {
 		Path:   "library/nginx",
 		Ref:    "latest",
 	}
-	result, err := ParseRegistryReference(base, "cr://docker.io/other/image:v2")
+	parsedRef, err := ParseRegistryReference("cr://docker.io/other/image:v2")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	result := base.Merge(parsedRef)
 	if result.Path != "other/image" {
 		t.Errorf("Path = %q, want other/image", result.Path)
 	}
@@ -215,8 +218,7 @@ func TestParseRegistryReference_FullCRRef(t *testing.T) {
 }
 
 func TestParseRegistryReference_UnsupportedSchemeInRef(t *testing.T) {
-	base := Reference{Scheme: RegistryScheme, Host: "docker.io", Path: "lib/app", Ref: "latest"}
-	_, err := ParseRegistryReference(base, "oci://something:tag")
+	_, err := ParseRegistryReference("https://something:tag")
 	if !errors.Is(err, ErrSchemeUnsupported) {
 		t.Errorf("expected ErrSchemeUnsupported, got %v", err)
 	}
@@ -230,10 +232,11 @@ func TestParseRegistryReference_PathOnlyRef(t *testing.T) {
 		Ref:    "latest",
 	}
 	// A ref like "myapp:v3" without "://" triggers parsePath
-	result, err := ParseRegistryReference(base, "myapp:v3")
+	parsedRef, err := ParseRegistryReference("myapp:v3")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	result := base.Merge(parsedRef)
 	if result.Path != "myapp" {
 		t.Errorf("Path = %q, want myapp", result.Path)
 	}
@@ -245,10 +248,11 @@ func TestParseRegistryReference_PathOnlyRef(t *testing.T) {
 func TestParseRegistryReference_DigestRef(t *testing.T) {
 	base := Reference{Scheme: RegistryScheme, Host: "docker.io", Path: "lib/app", Ref: "latest"}
 	dgst := "sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b"
-	result, err := ParseRegistryReference(base, dgst)
+	parsedRef, err := ParseRegistryReference(dgst)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	result := base.Merge(parsedRef)
 	// A long sha-like string without special chars — treated as tag replacement
 	if result.Ref != dgst {
 		t.Errorf("Ref = %q, want %q", result.Ref, dgst)

@@ -176,3 +176,10 @@ func httpHandler(desc Descriptor, tmpDir string) ConvertHandler {
 		return
 	}
 }
+
+func ociHandler(desc Descriptor) ConvertHandler {
+	return func(context.Context) (descriptors []Descriptor, err error) {
+		descriptors = append(descriptors, desc)
+		return
+	}
+}

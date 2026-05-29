@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 
 	"github.com/arenadata/oci-packer/internal/logger"
+	"github.com/arenadata/oci-packer/pkg/registry/reference"
 	"github.com/containerd/containerd/v2/core/images"
 	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -70,19 +71,28 @@ func Copy(ctx context.Context, dst Pusher, src Fetcher, desc ocispecv1.Descripto
 func copyDescriptor(ctx context.Context, dst Pusher, src Fetcher, desc ocispecv1.Descriptor) error {
 	fields := map[string]any{"digest": desc.Digest, "media_type": desc.MediaType}
 	log := logger.New("copy_descriptor")
-	log.WithFields(fields).Debug("copying descriptor")
+	log.WithFields(fields).Debug("copying artifact")
 
-	r, err := src.Fetch(ctx, desc)
+	ref := reference.Reference{Ref: desc.Digest.String()}
+	r, err := src.Fetch(ctx, ref.WithDescriptor(desc))
 	if err != nil {
 		log.WithError(err).WithFields(fields).Error("error fetching descriptor")
 		return err
 	}
 	defer func() { _ = r.Close() }()
-	return dst.Push(ctx, desc, r)
+
+	log.WithFields(fields).Info("copy artifact")
+	if err = dst.Push(ctx, desc, r); err != nil {
+		if !IsAlreadyExists(err) {
+			return err
+		}
+		log.WithFields(fields).Info("file already exists")
+	}
+	return nil
 }
 
 func fetch(ctx context.Context, src Fetcher, desc ocispecv1.Descriptor, v any) error {
-	reader, err := src.Fetch(ctx, desc)
+	reader, err := src.Fetch(ctx, reference.Reference{Ref: desc.Digest.String()})
 	if err != nil {
 		return err
 	}

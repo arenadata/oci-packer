@@ -46,13 +46,17 @@ This declarative approach allows you to:
 - Maintain reproducible artifact definitions
 
 #### TODO
+- [x] build pack
+- [x] copy from the container registry to oci-layout and back
 - [x] pack file validation
-- [x] oci-layout
+- [x] oci-layout (with untar layers)
 - [x] logging
-- [] add progressbar
+- [ ] add progressbar
 - [x] unit tests
+- handlers:
+  - [ ] s3
 - commands:
-  - [] proxy
+  - [x] proxy
   - [x] copy
-  - [] list components
-  - [] mount
+  - [ ] list components
+  - [ ] mount

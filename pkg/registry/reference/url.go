@@ -13,24 +13,22 @@
   limitations under the License.
 */
 
-package remote
+package reference
 
 import (
 	"net/url"
 	"path"
 	"strings"
 
-	"github.com/arenadata/oci-packer/pkg/registry/reference"
-
 	"github.com/opencontainers/go-digest"
 )
 
-type registryUrl struct {
-	reference.Reference
+type Url struct {
+	ref    Reference
 	scheme string
 }
 
-func fromRef(ref reference.Reference, plainHttp bool) registryUrl {
+func fromRef(ref Reference, plainHttp bool) Url {
 	scheme := "https"
 	if plainHttp {
 		scheme = "http"
@@ -43,9 +41,9 @@ func fromRef(ref reference.Reference, plainHttp bool) registryUrl {
 		}
 	}
 
-	return registryUrl{
-		Reference: ref,
-		scheme:    scheme,
+	return Url{
+		ref:    ref,
+		scheme: scheme,
 	}
 }
 
@@ -57,44 +55,48 @@ func normalizeRegistry(registry string) string {
 	return registry
 }
 
-func (r registryUrl) v2() *url.URL {
-	return &url.URL{Scheme: r.scheme, Host: r.Host, Path: "/v2/"}
+func (r Url) Path() string {
+	return r.ref.Path
 }
 
-func (r registryUrl) repo() *url.URL {
+func (r Url) v2() *url.URL {
+	return &url.URL{Scheme: r.scheme, Host: r.ref.Host, Path: "/v2/"}
+}
+
+func (r Url) repo() *url.URL {
 	u := r.v2()
-	u.Path = path.Join(u.Path, r.Path)
+	u.Path = path.Join(u.Path, r.ref.Path)
 	return u
 }
 
-func (r registryUrl) manifests() string {
+func (r Url) Manifests() string {
 	u := r.repo()
-	u.Path = path.Join(u.Path, "manifests", r.Ref)
+	u.Path = path.Join(u.Path, "manifests", r.ref.Ref)
 	return u.String()
 }
 
-func (r registryUrl) blobs() string {
+func (r Url) Blobs() string {
 	u := r.repo()
-	u.Path = path.Join(u.Path, "blobs", r.Ref)
+	u.Path = path.Join(u.Path, "blobs", r.ref.Ref)
 	return u.String()
 }
 
-func (r registryUrl) uploadsUrl() *url.URL {
+func (r Url) UploadsUrl() *url.URL {
 	u := r.repo()
 	u.Path = path.Join(u.Path, "blobs/uploads") + "/"
 	return u
 }
 
-func (r registryUrl) uploads() string {
-	return r.uploadsUrl().String()
+func (r Url) Uploads() string {
+	return r.UploadsUrl().String()
 }
 
-func (r registryUrl) mount(mount digest.Digest, from string) string {
+func (r Url) Mount(mount digest.Digest, from string) string {
 	val := make(url.Values)
 	val.Set("mount", mount.String())
 	val.Set("from", from)
 
-	u := r.uploadsUrl()
+	u := r.UploadsUrl()
 	u.RawQuery = val.Encode()
 	return u.String()
 }
