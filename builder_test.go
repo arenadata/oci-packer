@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/arenadata/oci-packer/pkg/registry"
+	"github.com/arenadata/oci-packer/pkg/registry/reference"
 	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -220,8 +221,8 @@ func TestPackPack_ManifestWithMultipleFiles(t *testing.T) {
 	dir := t.TempDir()
 	f1 := filepath.Join(dir, "a.bin")
 	f2 := filepath.Join(dir, "b.bin")
-	os.WriteFile(f1, []byte("aaa"), 0600)
-	os.WriteFile(f2, []byte("bbb"), 0600)
+	_ = os.WriteFile(f1, []byte("aaa"), 0600)
+	_ = os.WriteFile(f2, []byte("bbb"), 0600)
 
 	p := Pack{
 		Items: []Descriptor{
@@ -298,7 +299,11 @@ type mockPusher struct {
 	alwaysAlreadyExists bool
 }
 
-func (m *mockPusher) Push(_ context.Context, _ ocispecv1.Descriptor, _ io.Reader) error {
+func (m *mockPusher) MountFrom(context.Context, reference.Reference) (ocispecv1.Descriptor, error) {
+	return ocispecv1.Descriptor{}, nil
+}
+
+func (m *mockPusher) Push(context.Context, ocispecv1.Descriptor, io.Reader) error {
 	m.pushCount++
 	if m.alwaysAlreadyExists {
 		return registry.ErrAlreadyExists
@@ -306,7 +311,7 @@ func (m *mockPusher) Push(_ context.Context, _ ocispecv1.Descriptor, _ io.Reader
 	return nil
 }
 
-func (m *mockPusher) SetTag(_ context.Context, _ ocispecv1.Descriptor) error {
+func (m *mockPusher) SetTag(context.Context, ocispecv1.Descriptor) error {
 	return nil
 }
 

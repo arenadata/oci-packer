@@ -25,6 +25,7 @@ import (
 
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
 	"github.com/opencontainers/go-digest"
+	"github.com/opencontainers/image-spec/specs-go"
 	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -139,8 +140,8 @@ func TestNew_ExistingLayoutReused(t *testing.T) {
 func TestNew_InvalidOciLayoutFile(t *testing.T) {
 	dir := t.TempDir()
 	// Write a bad oci-layout file
-	os.MkdirAll(filepath.Join(dir, ocispecv1.ImageBlobsDir), 0755)
-	os.WriteFile(filepath.Join(dir, ocispecv1.ImageLayoutFile), []byte("not json"), 0640)
+	_ = os.MkdirAll(filepath.Join(dir, ocispecv1.ImageBlobsDir), 0755)
+	_ = os.WriteFile(filepath.Join(dir, ocispecv1.ImageLayoutFile), []byte("not json"), 0640)
 
 	_, err := New(makeRef(dir).String())
 	if err == nil {
@@ -150,9 +151,9 @@ func TestNew_InvalidOciLayoutFile(t *testing.T) {
 
 func TestNew_WrongLayoutVersion(t *testing.T) {
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, ocispecv1.ImageBlobsDir), 0755)
+	_ = os.MkdirAll(filepath.Join(dir, ocispecv1.ImageBlobsDir), 0755)
 	bad, _ := json.Marshal(ocispecv1.ImageLayout{Version: "999.0"})
-	os.WriteFile(filepath.Join(dir, ocispecv1.ImageLayoutFile), bad, 0640)
+	_ = os.WriteFile(filepath.Join(dir, ocispecv1.ImageLayoutFile), bad, 0640)
 
 	_, err := New(makeRef(dir).String())
 	if err == nil {
@@ -174,7 +175,7 @@ func TestNew_UnpackOption_SetsArtifactType(t *testing.T) {
 	// Verify index.json uses unpack media type
 	indexData, _ := os.ReadFile(filepath.Join(dir, ocispecv1.ImageIndexFile))
 	var index ocispecv1.Index
-	json.Unmarshal(indexData, &index)
+	_ = json.Unmarshal(indexData, &index)
 	if index.ArtifactType != MediaTypeUnpackLayout {
 		t.Errorf("ArtifactType = %q, want %q", index.ArtifactType, MediaTypeUnpackLayout)
 	}
@@ -270,10 +271,10 @@ func TestFetch_ReturnsSameContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch error: %v", err)
 	}
-	defer rc.Close()
+	defer func() { _ = rc.Close() }()
 
 	var buf bytes.Buffer
-	buf.ReadFrom(rc)
+	_, _ = buf.ReadFrom(rc)
 	if !bytes.Equal(buf.Bytes(), data) {
 		t.Errorf("content mismatch: got %q, want %q", buf.Bytes(), data)
 	}
@@ -556,5 +557,485 @@ func TestGetBlobPath_ContainsHex(t *testing.T) {
 	}
 	if filepath.Base(blobPath) != dgst.Hex() {
 		t.Errorf("getBlobPath() base = %q, want hex %q", filepath.Base(blobPath), dgst.Hex())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FetchReference
+// ---------------------------------------------------------------------------
+
+func TestFetchReference_NotFound(t *testing.T) {
+	l := newLayout(t)
+	_, _, err := l.FetchReference(context.Background(), makeRef(t.TempDir()))
+	if err == nil {
+		t.Fatal("FetchReference() should fail for non-existent reference")
+	}
+}
+
+func TestFetchReference_FoundAfterPush(t *testing.T) {
+	dir := t.TempDir()
+	l := newLayoutInDir(t, dir)
+	ref := makeRef(dir)
+
+	// Push manifest blob
+	manifestData := []byte("manifest content")
+	manifestDigest := digest.FromBytes(manifestData)
+
+	desc := ocispecv1.Descriptor{
+		Digest:    manifestDigest,
+		Size:      int64(len(manifestData)),
+		MediaType: ocispecv1.MediaTypeImageManifest,
+	}
+
+	if err := l.Push(context.Background(), desc, bytes.NewReader(manifestData)); err != nil {
+		t.Fatalf("Push error: %v", err)
+	}
+
+	if err := l.SetTag(context.Background(), desc); err != nil {
+		t.Fatalf("SetTag error: %v", err)
+	}
+
+	// FetchReference should now return descriptor and reader
+	fetchedDesc, reader, err := l.FetchReference(context.Background(), ref)
+	if err != nil {
+		t.Fatalf("FetchReference error: %v", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	if fetchedDesc.Digest != manifestDigest {
+		t.Errorf("Digest mismatch: got %v, want %v", fetchedDesc.Digest, manifestDigest)
+	}
+
+	// Verify content
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(reader); err != nil {
+		t.Fatalf("ReadFrom error: %v", err)
+	}
+
+	if !bytes.Equal(buf.Bytes(), manifestData) {
+		t.Errorf("content mismatch: got %v, want %v", buf.Bytes(), manifestData)
+	}
+}
+
+func TestFetchReference_ReturnsCorrectDescriptor(t *testing.T) {
+	dir := t.TempDir()
+	l := newLayoutInDir(t, dir)
+	ref := makeRef(dir)
+
+	// Create two manifests
+	data1 := []byte("manifest 1")
+	dgst1 := digest.FromBytes(data1)
+
+	desc1 := ocispecv1.Descriptor{
+		Digest:    dgst1,
+		Size:      int64(len(data1)),
+		MediaType: ocispecv1.MediaTypeImageManifest,
+	}
+
+	if err := l.Push(context.Background(), desc1, bytes.NewReader(data1)); err != nil {
+		t.Fatalf("Push error: %v", err)
+	}
+
+	if err := l.SetTag(context.Background(), desc1); err != nil {
+		t.Fatalf("SetTag error: %v", err)
+	}
+
+	fetchedDesc, _, err := l.FetchReference(context.Background(), ref)
+	if err != nil {
+		t.Fatalf("FetchReference error: %v", err)
+	}
+
+	if fetchedDesc.Digest != dgst1 {
+		t.Errorf("Digest mismatch: got %v, want %v", fetchedDesc.Digest, dgst1)
+	}
+	if fetchedDesc.MediaType != desc1.MediaType {
+		t.Errorf("MediaType mismatch: got %v, want %v", fetchedDesc.MediaType, desc1.MediaType)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Open
+// ---------------------------------------------------------------------------
+
+func TestOpen_ValidLayout(t *testing.T) {
+	// Create a layout with New
+	dir := t.TempDir()
+	_, err := New(makeRef(dir).String())
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	// Now open it directly
+	l, err := Open(makeRef(dir))
+	if err != nil {
+		t.Fatalf("Open() error: %v", err)
+	}
+
+	if l == nil {
+		t.Error("Open() returned nil")
+	}
+}
+
+func TestOpen_NonExistentLayout(t *testing.T) {
+	dir := t.TempDir()
+	_, err := Open(makeRef(dir))
+	if err == nil {
+		t.Fatal("Open() should fail for non-existent layout")
+	}
+}
+
+func TestOpen_InvalidOciLayout(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dir, ocispecv1.ImageBlobsDir), 0755)
+	_ = os.WriteFile(filepath.Join(dir, ocispecv1.ImageLayoutFile), []byte("invalid"), 0640)
+
+	_, err := Open(makeRef(dir))
+	if err == nil {
+		t.Fatal("Open() should fail for invalid oci-layout file")
+	}
+}
+
+func TestOpen_InfersUnpackFromIndex(t *testing.T) {
+	dir := t.TempDir()
+	// Create with Unpack
+	l1, err := New(makeRef(dir).String(), Unpack())
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	// Open without specifying Unpack — should infer from index
+	l2, err := Open(makeRef(dir))
+	if err != nil {
+		t.Fatalf("Open() error: %v", err)
+	}
+
+	if !l2.(*Layout).unpack {
+		t.Error("Open() should infer unpack=true from index ArtifactType")
+	}
+	if !l1.(*Layout).unpack {
+		t.Error("Open() should keep unpack=true")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// readIndex / writeIndex
+// ---------------------------------------------------------------------------
+
+func TestReadIndex_CorrectStructure(t *testing.T) {
+	l := newLayout(t)
+	index, err := l.readIndex()
+	if err != nil {
+		t.Fatalf("readIndex error: %v", err)
+	}
+
+	if index == nil {
+		t.Error("readIndex returned nil")
+	}
+	if index.Versioned.SchemaVersion != 2 {
+		t.Errorf("SchemaVersion = %d, want 2", index.Versioned.SchemaVersion)
+	}
+	if index.MediaType == "" {
+		t.Error("MediaType should not be empty")
+	}
+}
+
+func TestWriteIndex_CreatesFile(t *testing.T) {
+	l := newLayout(t)
+	index := &ocispecv1.Index{
+		Versioned: specs.Versioned{SchemaVersion: 2},
+		MediaType: ocispecv1.MediaTypeImageIndex,
+		Manifests: []ocispecv1.Descriptor{},
+	}
+
+	err := l.writeIndex(index)
+	if err != nil {
+		t.Fatalf("writeIndex error: %v", err)
+	}
+
+	// Verify file was written
+	indexPath := filepath.Join(l.ref.Path, ocispecv1.ImageIndexFile)
+	if _, err := os.Stat(indexPath); err != nil {
+		t.Errorf("index file not written: %v", err)
+	}
+}
+
+func TestReadWriteIndex_RoundTrip(t *testing.T) {
+	l := newLayout(t)
+
+	// Create index with some data
+	data := []byte("test manifest")
+	dgst := digest.FromBytes(data)
+
+	newIndex := &ocispecv1.Index{
+		Versioned: specs.Versioned{SchemaVersion: 2},
+		MediaType: ocispecv1.MediaTypeImageIndex,
+		Manifests: []ocispecv1.Descriptor{
+			{
+				Digest:    dgst,
+				Size:      int64(len(data)),
+				MediaType: ocispecv1.MediaTypeImageManifest,
+			},
+		},
+	}
+
+	// Write
+	if err := l.writeIndex(newIndex); err != nil {
+		t.Fatalf("writeIndex error: %v", err)
+	}
+
+	// Read back
+	readIndex, err := l.readIndex()
+	if err != nil {
+		t.Fatalf("readIndex error: %v", err)
+	}
+
+	if len(readIndex.Manifests) != 1 {
+		t.Errorf("expected 1 manifest, got %d", len(readIndex.Manifests))
+	}
+	if readIndex.Manifests[0].Digest != dgst {
+		t.Errorf("digest mismatch: got %v, want %v", readIndex.Manifests[0].Digest, dgst)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// validate
+// ---------------------------------------------------------------------------
+
+func TestValidate_ValidLayout(t *testing.T) {
+	l := newLayout(t)
+	err := l.validate()
+	if err != nil {
+		t.Fatalf("validate() error: %v", err)
+	}
+}
+
+func TestValidate_MissingLayoutFile(t *testing.T) {
+	dir := t.TempDir()
+	ref := makeRef(dir)
+	l := &Layout{ref: ref}
+
+	err := l.validate()
+	if err == nil {
+		t.Fatal("validate() should fail for missing oci-layout file")
+	}
+}
+
+func TestValidate_InvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dir, ocispecv1.ImageBlobsDir), 0755)
+	_ = os.WriteFile(filepath.Join(dir, ocispecv1.ImageLayoutFile), []byte("not json"), 0640)
+
+	ref := makeRef(dir)
+	l := &Layout{ref: ref}
+
+	err := l.validate()
+	if err == nil {
+		t.Fatal("validate() should fail for invalid JSON")
+	}
+}
+
+func TestValidate_WrongVersion(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(dir, ocispecv1.ImageBlobsDir), 0755)
+	badLayout, _ := json.Marshal(ocispecv1.ImageLayout{Version: "999.0"})
+	_ = os.WriteFile(filepath.Join(dir, ocispecv1.ImageLayoutFile), badLayout, 0640)
+
+	ref := makeRef(dir)
+	l := &Layout{ref: ref}
+
+	err := l.validate()
+	if err == nil {
+		t.Fatal("validate() should fail for wrong version")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MountFrom
+// ---------------------------------------------------------------------------
+
+func TestMountFrom_ReturnsDescriptor(t *testing.T) {
+	dir := t.TempDir()
+	l := newLayoutInDir(t, dir)
+	ref := makeRef(dir)
+
+	// Push and tag a manifest
+	data := []byte("manifest")
+	dgst := digest.FromBytes(data)
+	desc := ocispecv1.Descriptor{
+		Digest:    dgst,
+		Size:      int64(len(data)),
+		MediaType: ocispecv1.MediaTypeImageManifest,
+	}
+
+	if err := l.Push(context.Background(), desc, bytes.NewReader(data)); err != nil {
+		t.Fatalf("Push error: %v", err)
+	}
+	if err := l.SetTag(context.Background(), desc); err != nil {
+		t.Fatalf("SetTag error: %v", err)
+	}
+
+	// MountFrom should return the descriptor
+	mountedDesc, err := l.MountFrom(context.Background(), ref)
+	if err != nil {
+		t.Fatalf("MountFrom error: %v", err)
+	}
+
+	if mountedDesc.Digest != dgst {
+		t.Errorf("Digest mismatch: got %v, want %v", mountedDesc.Digest, dgst)
+	}
+}
+
+func TestMountFrom_NotFound(t *testing.T) {
+	l := newLayout(t)
+	_, err := l.MountFrom(context.Background(), makeRef(t.TempDir()))
+	if err == nil {
+		t.Fatal("MountFrom() should fail for non-existent reference")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Push with Unpack and Compression
+// ---------------------------------------------------------------------------
+
+func TestPush_AlreadyExists_ReturnsError(t *testing.T) {
+	l := newLayout(t)
+	data := []byte("blob")
+	dgst := digest.FromBytes(data)
+
+	desc := ocispecv1.Descriptor{
+		Digest:    dgst,
+		Size:      int64(len(data)),
+		MediaType: "application/octet-stream",
+	}
+
+	// First push
+	if err := l.Push(context.Background(), desc, bytes.NewReader(data)); err != nil {
+		t.Fatalf("first Push error: %v", err)
+	}
+
+	// Second push of same blob should fail
+	err := l.Push(context.Background(), desc, bytes.NewReader(data))
+	if err == nil {
+		t.Fatal("second Push should fail with ErrAlreadyExists")
+	}
+}
+
+func TestPush_CreatesNestedDirectories(t *testing.T) {
+	l := newLayout(t)
+	data := []byte("blob")
+	dgst := digest.FromBytes(data)
+
+	desc := ocispecv1.Descriptor{
+		Digest:    dgst,
+		Size:      int64(len(data)),
+		MediaType: "application/octet-stream",
+	}
+
+	if err := l.Push(context.Background(), desc, bytes.NewReader(data)); err != nil {
+		t.Fatalf("Push error: %v", err)
+	}
+
+	// Check blob directory structure exists
+	blobDir := l.getBlobDirectory(dgst)
+	if _, err := os.Stat(blobDir); err != nil {
+		t.Errorf("blob directory not created: %v", err)
+	}
+
+	blobPath := l.getBlobPath(dgst)
+	if _, err := os.Stat(blobPath); err != nil {
+		t.Errorf("blob file not created: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Fetch with Invalid Digest
+// ---------------------------------------------------------------------------
+
+func TestFetch_InvalidDigestFormat(t *testing.T) {
+	l := newLayout(t)
+	_, err := l.Fetch(context.Background(), reference.Reference{Ref: "not-a-valid-digest"})
+	if err == nil {
+		t.Fatal("Fetch() should fail for invalid digest format")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Index Consistency
+// ---------------------------------------------------------------------------
+
+func TestIndex_ConsistencyAfterMultipleTags(t *testing.T) {
+	l := newLayout(t)
+
+	// Create and tag multiple manifests
+	for i := 0; i < 3; i++ {
+		data := []byte("manifest-" + string(rune(i)))
+		dgst := digest.FromBytes(data)
+		desc := ocispecv1.Descriptor{
+			Digest:    dgst,
+			Size:      int64(len(data)),
+			MediaType: ocispecv1.MediaTypeImageManifest,
+		}
+
+		if err := l.Push(context.Background(), desc, bytes.NewReader(data)); err != nil {
+			t.Fatalf("Push error: %v", err)
+		}
+		if err := l.SetTag(context.Background(), desc); err != nil {
+			t.Fatalf("SetTag error: %v", err)
+		}
+	}
+
+	// Verify all 3 manifests are in index
+	index, err := l.readIndex()
+	if err != nil {
+		t.Fatalf("readIndex error: %v", err)
+	}
+
+	if len(index.Manifests) != 3 {
+		t.Errorf("expected 3 manifests, got %d", len(index.Manifests))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Edge Cases
+// ---------------------------------------------------------------------------
+
+func TestBlobPath_DifferentDigestAlgorithms(t *testing.T) {
+	dir := t.TempDir()
+	l := newLayoutInDir(t, dir)
+
+	data := []byte("test")
+	dgst := digest.FromBytes(data)
+
+	blobPath := l.getBlobPath(dgst)
+
+	// Path should contain algorithm and hex
+	if !bytes.Contains([]byte(blobPath), []byte(dgst.Algorithm().String())) {
+		t.Errorf("blobPath should contain algorithm %s", dgst.Algorithm().String())
+	}
+
+	if !bytes.Contains([]byte(blobPath), []byte(dgst.Hex())) {
+		t.Errorf("blobPath should contain hex %s", dgst.Hex())
+	}
+}
+
+func TestLayout_WithSpecialCharactersInPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	specialDir := filepath.Join(tmpDir, "test-layout_2026")
+	_ = os.MkdirAll(specialDir, 0755)
+
+	ref := reference.Reference{
+		Scheme: reference.OciScheme,
+		Host:   "",
+		Path:   specialDir,
+		Ref:    "image:tag",
+	}
+
+	l, err := New(ref.String())
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+
+	if l == nil {
+		t.Error("New() returned nil for special path")
 	}
 }

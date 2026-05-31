@@ -115,10 +115,15 @@ func (c Client) resolve(ctx context.Context, ref reference.Reference) (ocispecv1
 		return ocispecv1.Descriptor{}, reference.Url{}, err
 	}
 
+	contentLength := resp.ContentLength
+	if contentLength < 0 {
+		contentLength = 0
+	}
+
 	return ocispecv1.Descriptor{
 		MediaType: getManifestMediaType(resp),
 		Digest:    dgst,
-		Size:      resp.ContentLength,
+		Size:      contentLength,
 	}, repoUrl, nil
 }
 
