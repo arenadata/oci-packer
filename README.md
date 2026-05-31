@@ -1,6 +1,7 @@
 # oci-packer
 
-> ⚠️ **Проект находится в активной разработке.** API и функциональность могут существенно изменяться. Используйте с осторожностью.
+> ⚠️ **Проект находится в активной разработке.** API и функциональность могут существенно изменяться. Используйте с
+> осторожностью.
 
 Go-инструмент для создания и публикации OCI-артефактов из разнородных источников.
 
@@ -12,30 +13,39 @@ Go-инструмент для создания и публикации OCI-ар
 
 ## Описание
 
-`oci-packer` — инструмент на языке Go для упаковки произвольных источников (файлы, директории, OCI-образы, HTTP-ресурсы) в OCI-совместимые артефакты и их публикации в реестры контейнеров.
+`oci-packer` — инструмент на языке Go для упаковки произвольных источников (файлы, директории, OCI-образы, HTTP-ресурсы)
+в OCI-совместимые артефакты и их публикации в реестры контейнеров.
 
-Проект разработан компанией [Arenadata](https://arenadata.io) и предназначен для управления дистрибуцией артефактов в инфраструктуре на базе OCI (Open Container Initiative), в том числе для сценариев, выходящих за рамки классических Docker-образов: конфигурации, шаблоны, бинарные данные, слои с зависимостями.
+Проект разработан компанией [Arenadata](https://arenadata.io) и предназначен для управления дистрибуцией артефактов в
+инфраструктуре на базе OCI (Open Container Initiative), в том числе для сценариев, выходящих за рамки классических
+Docker-образов: конфигурации, шаблоны, бинарные данные, слои с зависимостями.
 
 ## Назначение
 
-[ORAS (OCI Registry As Storage)](https://oras.land) — референсный CLI-инструмент CNCF для работы с OCI-артефактами: позволяет загружать и скачивать отдельные файлы или группы файлов с явным указанием их типов. `oci-packer` решает смежную задачу, но с принципиально иным подходом:
- 
-| Критерий | ORAS | oci-packer |
-|----------|------|------------|
-| **Описание артефакта** | Императивное: файлы и типы передаются аргументами CLI | Декларативное: YAML Pack-файл описывает всю структуру |
-| **Источники** | Локальные файлы и директории | Файлы, директории, HTTP/HTTPS, OCI-реестры, S3 |
-| **Мультиплатформенность** | Ограниченная поддержка индексов | Нативное создание OCI Index с `platform`-вариантами |
-| **Конфигурационный дескриптор** | Фиксированный пустой config | Произвольный `config`-дескриптор из любого источника |
-| **Интеграция в CI/CD** | Push-команды в скриптах | Один файл — полная спецификация артефакта |
-| **Монтирование из реестра** | Нет | Поддержка `oci://`-источников с mount из реестра |
-| **Зрелость** | Стабильный, CNCF Sandbox | Work In Progress |
- 
-`oci-packer` ориентирован на сценарии, где структура артефакта сложна и воспроизводима: несколько источников разных типов, мультиплатформенные сборки, кастомные config-объекты — всё описывается в одном файле и воспроизводится детерминированно.
+[ORAS (OCI Registry As Storage)](https://oras.land) — референсный CLI-инструмент CNCF для работы с OCI-артефактами:
+позволяет загружать и скачивать отдельные файлы или группы файлов с явным указанием их типов. `oci-packer` решает
+смежную задачу, но с принципиально иным подходом:
+
+| Критерий                        | ORAS                                                  | oci-packer                                            |
+|---------------------------------|-------------------------------------------------------|-------------------------------------------------------|
+| **Описание артефакта**          | Императивное: файлы и типы передаются аргументами CLI | Декларативное: YAML Pack-файл описывает всю структуру |
+| **Источники**                   | Локальные файлы и директории                          | Файлы, директории, HTTP/HTTPS, OCI-реестры, S3        |
+| **Мультиплатформенность**       | Ограниченная поддержка индексов                       | Нативное создание OCI Index с `platform`-вариантами   |
+| **Конфигурационный дескриптор** | Фиксированный пустой config                           | Произвольный `config`-дескриптор из любого источника  |
+| **Интеграция в CI/CD**          | Push-команды в скриптах                               | Один файл — полная спецификация артефакта             |
+| **Монтирование из реестра**     | Нет                                                   | Поддержка `oci://`-источников с mount из реестра      |
+| **Зрелость**                    | Стабильный, CNCF Sandbox                              | Work In Progress                                      |
+
+`oci-packer` ориентирован на сценарии, где структура артефакта сложна и воспроизводима: несколько источников разных
+типов, мультиплатформенные сборки, кастомные config-объекты — всё описывается в одном файле и воспроизводится
+детерминированно.
 
 ## Возможности
 
-- **Множество типов источников**: файлы (`file://`), директории (`dir://`), HTTP/HTTPS-ресурсы (`http://`, `https://`), OCI/Docker-реестры (`oci://`, `docker://`), S3 (`s3://`, в разработке)
-- **Мультиплатформенные сборки**: создание индекс-манифестов с вариантами для разных архитектур (linux/amd64, linux/arm64 и т.д.)
+- **Множество типов источников**: файлы (`file://`), директории (`dir://`), HTTP/HTTPS-ресурсы (`http://`, `https://`),
+  OCI/Docker-реестры (`oci://`, `docker://`), S3 (`s3://`, в разработке)
+- **Мультиплатформенные сборки**: создание индекс-манифестов с вариантами для разных архитектур (linux/amd64,
+  linux/arm64 и т.д.)
 - **OCI Layout**: поддержка локального формата `oci-layout` с распаковкой слоёв
 - **Публикация в реестр**: прямая загрузка артефактов через OCI Distribution API
 - **Аннотации и метаданные**: гибкое управление OCI-аннотациями на уровне артефакта, манифеста и каждого слоя
@@ -122,13 +132,13 @@ items:
 
 ### Схемы источников
 
-| Схема | Пример | Описание |
-|-------|--------|----------|
-| `file://` | `file://path/to/file.tar.gz` | Локальный файл |
-| `dir://` | `dir://path/to/directory/` | Все файлы директории |
-| `http://` / `https://` | `https://example.com/data.bin` | HTTP-загрузка |
-| `oci://` / `docker://` | `oci://registry/image:tag` | OCI/Docker-реестр |
-| `s3://` | `s3://bucket/key` | Amazon S3 (в разработке) |
+| Схема                  | Пример                         | Описание                 |
+|------------------------|--------------------------------|--------------------------|
+| `file://`              | `file://path/to/file.tar.gz`   | Локальный файл           |
+| `dir://`               | `dir://path/to/directory/`     | Все файлы директории     |
+| `http://` / `https://` | `https://example.com/data.bin` | HTTP-загрузка            |
+| `oci://` / `docker://` | `oci://registry/image:tag`     | OCI/Docker-реестр        |
+| `s3://`                | `s3://bucket/key`              | Amazon S3 (в разработке) |
 
 ### Мультиплатформенные артефакты
 
@@ -189,18 +199,18 @@ oci-packer proxy cr://registry.example.com
 
 ## Зависимости
 
-| Библиотека | Назначение |
-|------------|-----------|
-| `containerd/containerd/v2` | OCI Distribution API клиент |
+| Библиотека                  | Назначение                                |
+|-----------------------------|-------------------------------------------|
+| `containerd/containerd/v2`  | OCI Distribution API клиент               |
 | `opencontainers/image-spec` | OCI-спецификации (дескрипторы, манифесты) |
-| `opencontainers/go-digest` | Вычисление SHA256-дайджестов |
-| `containerd/platforms` | Парсинг и форматирование платформ |
-| `moby/go-archive` | Работа с tar-архивами |
-| `spf13/cobra` | CLI-фреймворк |
-| `sirupsen/logrus` | Структурированное логирование |
-| `docker/go-units` | Форматирование размеров файлов |
-| `gopkg.in/yaml.v3` | Парсинг YAML |
-| `klauspost/compress` | Zstd-сжатие |
+| `opencontainers/go-digest`  | Вычисление SHA256-дайджестов              |
+| `containerd/platforms`      | Парсинг и форматирование платформ         |
+| `moby/go-archive`           | Работа с tar-архивами                     |
+| `spf13/cobra`               | CLI-фреймворк                             |
+| `sirupsen/logrus`           | Структурированное логирование             |
+| `docker/go-units`           | Форматирование размеров файлов            |
+| `gopkg.in/yaml.v3`          | Парсинг YAML                              |
+| `klauspost/compress`        | Zstd-сжатие                               |
 
 ## Дорожная карта
 
@@ -211,6 +221,7 @@ oci-packer proxy cr://registry.example.com
 - [x] Структурированное логирование
 - [x] Юнит-тесты
 - [x] CLI-команды: `proxy`, `copy`
+- [ ] E2E tests
 - [ ] Прогресс-бар
 - [ ] Поддержка S3-хендлера
 - [ ] CLI-команда: список компонентов (`list`)
@@ -230,30 +241,39 @@ Apache License 2.0. Подробности в файле [LICENSE](LICENSE).
 
 ## Description
 
-`oci-packer` is a Go tool for packaging arbitrary sources — files, directories, OCI images, HTTP resources — into OCI-compliant artifacts and pushing them to container registries.
+`oci-packer` is a Go tool for packaging arbitrary sources — files, directories, OCI images, HTTP resources — into
+OCI-compliant artifacts and pushing them to container registries.
 
-Developed by [Arenadata](https://arenadata.io), it is designed for artifact distribution management in OCI (Open Container Initiative) infrastructure, including use cases that go beyond classic Docker images: configurations, templates, binary data, dependency layers.
+Developed by [Arenadata](https://arenadata.io), it is designed for artifact distribution management in OCI (Open
+Container Initiative) infrastructure, including use cases that go beyond classic Docker images: configurations,
+templates, binary data, dependency layers.
 
 ## Purpose
 
-[ORAS (OCI Registry As Storage)](https://oras.land) is the CNCF reference CLI for OCI artifacts: it lets you push and pull individual files or file groups with explicit media types specified as CLI arguments. `oci-packer` solves a related problem but with a fundamentally different approach:
- 
-| Criterion | ORAS | oci-packer |
-|-----------|------|------------|
+[ORAS (OCI Registry As Storage)](https://oras.land) is the CNCF reference CLI for OCI artifacts: it lets you push and
+pull individual files or file groups with explicit media types specified as CLI arguments. `oci-packer` solves a related
+problem but with a fundamentally different approach:
+
+| Criterion               | ORAS                                                | oci-packer                                               |
+|-------------------------|-----------------------------------------------------|----------------------------------------------------------|
 | **Artifact definition** | Imperative: files and types passed as CLI arguments | Declarative: YAML Pack file describes the full structure |
-| **Sources** | Local files and directories | Files, directories, HTTP/HTTPS, OCI registries, S3 |
-| **Multi-platform** | Limited index support | Native OCI Index creation with `platform` variants |
-| **Config descriptor** | Fixed empty config | Arbitrary `config` descriptor from any source |
-| **CI/CD integration** | Push commands in scripts | One file — complete artifact specification |
-| **Registry mount** | No | Supports `oci://` sources with registry-side mount |
-| **Maturity** | Stable, CNCF Sandbox | Work In Progress |
- 
-`oci-packer` is oriented towards scenarios where the artifact structure is complex and must be reproducible: multiple sources of different types, multi-platform builds, custom config objects — all described in a single file and produced deterministically.
+| **Sources**             | Local files and directories                         | Files, directories, HTTP/HTTPS, OCI registries, S3       |
+| **Multi-platform**      | Limited index support                               | Native OCI Index creation with `platform` variants       |
+| **Config descriptor**   | Fixed empty config                                  | Arbitrary `config` descriptor from any source            |
+| **CI/CD integration**   | Push commands in scripts                            | One file — complete artifact specification               |
+| **Registry mount**      | No                                                  | Supports `oci://` sources with registry-side mount       |
+| **Maturity**            | Stable, CNCF Sandbox                                | Work In Progress                                         |
+
+`oci-packer` is oriented towards scenarios where the artifact structure is complex and must be reproducible: multiple
+sources of different types, multi-platform builds, custom config objects — all described in a single file and produced
+deterministically.
 
 ## Features
 
-- **Multiple source types**: files (`file://`), directories (`dir://`), HTTP/HTTPS resources (`http://`, `https://`), OCI/Docker registries (`oci://`, `docker://`), S3 (`s3://`, in progress)
-- **Multi-platform builds**: create index manifests with variants for different architectures (linux/amd64, linux/arm64, etc.)
+- **Multiple source types**: files (`file://`), directories (`dir://`), HTTP/HTTPS resources (`http://`, `https://`),
+  OCI/Docker registries (`oci://`, `docker://`), S3 (`s3://`, in progress)
+- **Multi-platform builds**: create index manifests with variants for different architectures (linux/amd64, linux/arm64,
+  etc.)
 - **OCI Layout**: native support for local `oci-layout` format with layer extraction
 - **Registry push**: direct artifact upload via OCI Distribution API
 - **Annotations and metadata**: flexible OCI annotation management at artifact, manifest, and individual layer level
@@ -340,13 +360,13 @@ items:
 
 ### Source Schemes
 
-| Scheme | Example | Description |
-|--------|---------|-------------|
-| `file://` | `file://path/to/file.tar.gz` | Local file |
-| `dir://` | `dir://path/to/directory/` | All files in directory |
-| `http://` / `https://` | `https://example.com/data.bin` | HTTP download |
-| `oci://` / `docker://` | `oci://registry/image:tag` | OCI/Docker registry |
-| `s3://` | `s3://bucket/key` | Amazon S3 (coming soon) |
+| Scheme                 | Example                        | Description             |
+|------------------------|--------------------------------|-------------------------|
+| `file://`              | `file://path/to/file.tar.gz`   | Local file              |
+| `dir://`               | `dir://path/to/directory/`     | All files in directory  |
+| `http://` / `https://` | `https://example.com/data.bin` | HTTP download           |
+| `oci://` / `docker://` | `oci://registry/image:tag`     | OCI/Docker registry     |
+| `s3://`                | `s3://bucket/key`              | Amazon S3 (coming soon) |
 
 ### Multi-platform Artifacts
 
@@ -407,18 +427,18 @@ oci-packer proxy cr://registry.example.com
 
 ## Dependencies
 
-| Library | Purpose |
-|---------|---------|
-| `containerd/containerd/v2` | OCI Distribution API client |
-| `opencontainers/image-spec` | OCI specs (descriptors, manifests) |
-| `opencontainers/go-digest` | SHA256 digest computation |
-| `containerd/platforms` | Platform string parsing and formatting |
-| `moby/go-archive` | Tar archive handling |
-| `spf13/cobra` | CLI framework |
-| `sirupsen/logrus` | Structured logging |
-| `docker/go-units` | File size formatting |
-| `gopkg.in/yaml.v3` | YAML parsing |
-| `klauspost/compress` | Zstd compression |
+| Library                     | Purpose                                |
+|-----------------------------|----------------------------------------|
+| `containerd/containerd/v2`  | OCI Distribution API client            |
+| `opencontainers/image-spec` | OCI specs (descriptors, manifests)     |
+| `opencontainers/go-digest`  | SHA256 digest computation              |
+| `containerd/platforms`      | Platform string parsing and formatting |
+| `moby/go-archive`           | Tar archive handling                   |
+| `spf13/cobra`               | CLI framework                          |
+| `sirupsen/logrus`           | Structured logging                     |
+| `docker/go-units`           | File size formatting                   |
+| `gopkg.in/yaml.v3`          | YAML parsing                           |
+| `klauspost/compress`        | Zstd compression                       |
 
 ## Roadmap
 
