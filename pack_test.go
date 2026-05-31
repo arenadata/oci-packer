@@ -182,7 +182,7 @@ func TestPackValidation(t *testing.T) {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if tt.wantErr && err != nil && tt.errMsg != "" {
-				if err.Error() == "" || !contains(err.Error(), tt.errMsg) {
+				if err.Error() == "" || !strings.Contains(err.Error(), tt.errMsg) {
 					t.Errorf("Validate() error message = %v, want to contain %v", err.Error(), tt.errMsg)
 				}
 			}
@@ -289,21 +289,31 @@ func TestFileMediaTypeResolution(t *testing.T) {
 		})
 	}
 
-	// Test special cases that are system-dependent
+	// Test system-dependent cases: list all acceptable values explicitly
+	// instead of using ambiguous || chains so failures are easy to diagnose.
+	allowedGz := []string{
+		"application/vnd.oci.image.layer.v1.tar+gzip",
+		"application/gzip",
+	}
 	gzType := ResolveFileMediaType("archive.tar.gz")
-	if gzType != "application/vnd.oci.image.layer.v1.tar+gzip" && gzType != "application/gzip" {
-		t.Errorf("ResolveFileMediaType(\"archive.tar.gz\") = %q, expected tar+gzip or gzip", gzType)
+	if !mediaTypeOneOf(gzType, allowedGz) {
+		t.Errorf("ResolveFileMediaType(\"archive.tar.gz\") = %q, want one of %v", gzType, allowedGz)
 	}
 
+	allowedZst := []string{
+		"application/vnd.oci.image.layer.v1.tar+zstd",
+		"application/octet-stream",
+	}
 	zstType := ResolveFileMediaType("archive.tar.zst")
-	if zstType != "application/vnd.oci.image.layer.v1.tar+zstd" && zstType != "application/octet-stream" {
-		t.Errorf("ResolveFileMediaType(\"archive.tar.zst\") = %q, expected tar+zstd or octet-stream", zstType)
+	if !mediaTypeOneOf(zstType, allowedZst) {
+		t.Errorf("ResolveFileMediaType(\"archive.tar.zst\") = %q, want one of %v", zstType, allowedZst)
 	}
 }
 
-func contains(s, substr string) bool {
-	for i := 0; i < len(s)-len(substr)+1; i++ {
-		if s[i:i+len(substr)] == substr {
+// mediaTypeOneOf reports whether s equals any of the candidates.
+func mediaTypeOneOf(s string, candidates []string) bool {
+	for _, c := range candidates {
+		if s == c {
 			return true
 		}
 	}
@@ -371,6 +381,30 @@ func TestPackValidate_ItemConfigInvalidSource(t *testing.T) {
 	err := p.Validate()
 	if err == nil {
 		t.Fatal("expected error for invalid item config source")
+	}
+}
+
+func TestPackValidate_ItemConfigValidSource(t *testing.T) {
+	// Positive case: item.Config with a valid source must not fail Validate.
+	validSources := []string{
+		"file://cfg.json",
+		"https://example.com/cfg.json",
+		"s3://bucket/cfg.json",
+	}
+	for _, src := range validSources {
+		t.Run(src, func(t *testing.T) {
+			p := Pack{
+				Items: []Descriptor{
+					{
+						From:   "file://data.bin",
+						Config: &ConfigDescriptor{From: src},
+					},
+				},
+			}
+			if err := p.Validate(); err != nil {
+				t.Errorf("Validate() unexpected error for item.Config.From=%q: %v", src, err)
+			}
+		})
 	}
 }
 

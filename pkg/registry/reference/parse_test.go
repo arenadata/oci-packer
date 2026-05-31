@@ -127,7 +127,7 @@ func TestParse_Successful(t *testing.T) {
 			},
 		},
 		{
-			name:  "OCI dir reference with numeric tag",
+			name:  "OCI dir reference with numeric tag, absolute path",
 			input: "oci:///full/path/to/dir:docker.io/library/nginx:123",
 			expectedRef: Reference{
 				Scheme: OciScheme,
@@ -283,24 +283,32 @@ func FuzzParse(f *testing.F) {
 	f.Add("docker.io/myapp@sha256:abc123")
 	f.Add("")
 	f.Add("://invalid")
+	// Seeds that exercise valid cr:// and oci:// paths.
+	f.Add("cr://docker.io/library/nginx:latest")
+	f.Add("cr://localhost:5000/myapp:v1")
+	f.Add("oci://relative/path:tag")
+	f.Add("oci:///absolute/path:tag")
 
 	f.Fuzz(func(t *testing.T, input string) {
 		ref, err := Parse(input)
 
 		if err == nil {
-			// Valid output must have non-empty Host
-			if ref.Host == "" {
-				t.Errorf("host should not be empty for valid input %q", input)
+			// Valid output must have non-empty Host for cr:// references.
+			if ref.Scheme == RegistryScheme && ref.Host == "" {
+				t.Errorf("host should not be empty for valid cr:// input %q", input)
 			}
-			// Ref must not be empty
+			// Ref must not be empty.
 			if ref.Ref == "" {
 				t.Errorf("ref should not be empty for valid input %q", input)
 			}
-			// internal consistency: if Image is empty, it's okay (host only path would have been caught)
 		} else {
-			// error must be one of the sentinel errors
-			if !errors.Is(err, ErrInvalid) && !errors.Is(err, ErrHostnameRequired) {
-				// it's okay to get url.Parse errors as well (they are not sentinel)
+			// Error must be one of the documented sentinel values.
+			if !errors.Is(err, ErrInvalid) &&
+				!errors.Is(err, ErrHostnameRequired) &&
+				!errors.Is(err, ErrSchemeRequired) &&
+				!errors.Is(err, ErrSchemeUnsupported) {
+				// url.Parse and other low-level errors may also surface.
+				_ = err
 			}
 		}
 	})

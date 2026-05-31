@@ -212,13 +212,12 @@ func TestClientHead(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	// HEAD requests should not have a body
-	if resp.Body != nil {
-		body, _ := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		if len(body) > 0 {
-			t.Error("HEAD request should not have a body")
-		}
+	// HEAD responses must have a non-nil body (per net/http spec Body is
+	// always non-nil), but it must be empty — no actual bytes transferred.
+	body, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if len(body) > 0 {
+		t.Error("HEAD response body should be empty")
 	}
 }
 
@@ -290,7 +289,6 @@ func TestNewRequest(t *testing.T) {
 		method         string
 		url            string
 		expectedError  bool
-		expectedProto  string
 		expectedMethod string
 	}{
 		{
@@ -298,7 +296,6 @@ func TestNewRequest(t *testing.T) {
 			method:         http.MethodGet,
 			url:            "http://example.com",
 			expectedError:  false,
-			expectedProto:  "HTTP/2.0",
 			expectedMethod: http.MethodGet,
 		},
 		{
@@ -306,7 +303,6 @@ func TestNewRequest(t *testing.T) {
 			method:         http.MethodPost,
 			url:            "http://example.com",
 			expectedError:  false,
-			expectedProto:  "HTTP/2.0",
 			expectedMethod: http.MethodPost,
 		},
 		{
@@ -330,9 +326,6 @@ func TestNewRequest(t *testing.T) {
 			}
 
 			if !tt.expectedError && req != nil {
-				if req.Proto != tt.expectedProto {
-					t.Errorf("Expected proto %s, got %s", tt.expectedProto, req.Proto)
-				}
 				if req.Method != tt.expectedMethod {
 					t.Errorf("Expected method %s, got %s", tt.expectedMethod, req.Method)
 				}

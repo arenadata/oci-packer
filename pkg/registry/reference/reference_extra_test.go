@@ -17,6 +17,7 @@ package reference
 
 import (
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -135,10 +136,10 @@ func TestReference_String_DigestSeparator(t *testing.T) {
 		Ref:    digestRef,
 	}
 	got := ref.String()
-	if !containsStr(got, "@") {
+	if !strings.Contains(got, "@") {
 		t.Errorf("String() = %q, expected @ separator for digest ref", got)
 	}
-	if !containsStr(got, digestRef) {
+	if !strings.Contains(got, digestRef) {
 		t.Errorf("String() = %q, should contain digest %q", got, digestRef)
 	}
 }
@@ -151,7 +152,7 @@ func TestReference_String_OciSchemeNoHost(t *testing.T) {
 	}
 	got := ref.String()
 	// For OCI scheme the format is "oci" + path + ":" + ref (no host in string)
-	if !containsStr(got, "relative/path") {
+	if !strings.Contains(got, "relative/path") {
 		t.Errorf("String() = %q, should contain path", got)
 	}
 }
@@ -257,20 +258,4 @@ func TestParseRegistryReference_DigestRef(t *testing.T) {
 	if result.Ref != dgst {
 		t.Errorf("Ref = %q, want %q", result.Ref, dgst)
 	}
-}
-
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
-
-func containsStr(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
-		func() bool {
-			for i := 0; i <= len(s)-len(sub); i++ {
-				if s[i:i+len(sub)] == sub {
-					return true
-				}
-			}
-			return false
-		}())
 }

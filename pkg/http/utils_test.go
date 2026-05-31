@@ -240,3 +240,29 @@ func TestResponseToFileLargeContent(t *testing.T) {
 		t.Errorf("Expected file size %d, got %d", len(largeContent), fileInfo.Size())
 	}
 }
+
+func TestResponseToFileUnknownContentLength(t *testing.T) {
+	// ContentLength == -1 is common for streaming/chunked responses.
+	// ResponseToFile must still write the full body.
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "streamed.bin")
+
+	content := "streamed data without known length"
+	resp := &http.Response{
+		Body:          io.NopCloser(bytes.NewBufferString(content)),
+		ContentLength: -1,
+	}
+
+	err := ResponseToFile(resp, filePath)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	got, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("Failed to read file: %v", err)
+	}
+	if string(got) != content {
+		t.Errorf("Expected %q, got %q", content, string(got))
+	}
+}

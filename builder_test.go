@@ -211,9 +211,14 @@ func TestPackPack_ManifestWithSingleFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Pack() error: %v", err)
 	}
-	// Pushed at least the blob + config + manifest
-	if pusher.pushCount < 3 {
-		t.Errorf("expected at least 3 push calls, got %d", pusher.pushCount)
+	// A single-file manifest requires at minimum:
+	//   1 push — the blob layer
+	//   1 push — the synthesised config blob
+	//   1 push — the image manifest itself
+	const minExpectedPushes = 3
+	if pusher.pushCount < minExpectedPushes {
+		t.Errorf("expected at least %d push calls (blob+config+manifest), got %d",
+			minExpectedPushes, pusher.pushCount)
 	}
 }
 
@@ -314,6 +319,50 @@ func (m *mockPusher) Push(context.Context, ocispecv1.Descriptor, io.Reader) erro
 func (m *mockPusher) SetTag(context.Context, ocispecv1.Descriptor) error {
 	return nil
 }
+
+// ---------------------------------------------------------------------------
+// Context cancellation
+// ---------------------------------------------------------------------------
+
+func TestPackPack_ContextCancelled(t *testing.T) {
+	f := writeTestFile(t, "blob.bin", "data")
+	p := Pack{Items: []Descriptor{{From: "file://" + f}}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before Pack is called
+
+	// Must not panic regardless of whether Pack honours ctx.
+	_, _ = p.Pack(ctx, &mockPusher{})
+}
+
+func TestPackPack_ContextCancelledDuringPush(t *testing.T) {
+	f := writeTestFile(t, "blob.bin", "data")
+	p := Pack{Items: []Descriptor{{From: "file://" + f}}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	pusher := &mockCancelPusher{cancel: cancel}
+
+	// Must not panic or deadlock.
+	_, _ = p.Pack(ctx, pusher)
+}
+
+// mockCancelPusher cancels the context on its first Push call.
+type mockCancelPusher struct {
+	cancel context.CancelFunc
+	called bool
+}
+
+func (m *mockCancelPusher) MountFrom(_ context.Context, _ reference.Reference) (ocispecv1.Descriptor, error) {
+	return ocispecv1.Descriptor{}, nil
+}
+func (m *mockCancelPusher) Push(ctx context.Context, _ ocispecv1.Descriptor, _ io.Reader) error {
+	if !m.called {
+		m.called = true
+		m.cancel()
+	}
+	return ctx.Err()
+}
+func (m *mockCancelPusher) SetTag(_ context.Context, _ ocispecv1.Descriptor) error { return nil }
 
 func writeTestFile(t *testing.T, name, content string) string {
 	t.Helper()

@@ -336,43 +336,53 @@ func TestProxyServeHTTPWithPlatform(t *testing.T) {
 }
 
 func TestProxyServeHTTPCacheHit(t *testing.T) {
+	// Build the reference exactly as defaultConverter does for the test URL so
+	// that the cache key written here matches the key the Proxy will look up.
+	reqURL := "/path/reference?title=cachedimage"
+	req := httptest.NewRequest(http.MethodGet, reqURL, nil)
+	ref, opts, err := defaultConverter(req)
+	if err != nil {
+		t.Fatalf("defaultConverter failed: %v", err)
+	}
+
+	descriptor := ocispecv1.Descriptor{
+		MediaType: "application/vnd.docker.container.image.v1+json",
+		Size:      14,
+		Digest:    "sha256:cached",
+		Annotations: map[string]string{
+			ocispecv1.AnnotationTitle: opts[ocispecv1.AnnotationTitle],
+		},
+	}
+
+	mockCache := NewMockCache()
+	// Use the real cache key the Proxy will use on lookup.
+	mockCache.Set(ref.String(), opts["platform"], opts[ocispecv1.AnnotationTitle], descriptor)
+
 	mockResolver := &MockResolver{
 		fetchFunc: func(ctx context.Context, ref reference.Reference) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader([]byte("cached content"))), nil
 		},
 	}
 
-	mockCache := NewMockCache()
-	descriptor := ocispecv1.Descriptor{
-		MediaType: "application/vnd.docker.container.image.v1+json",
-		Size:      14,
-		Digest:    "sha256:cached",
-		Annotations: map[string]string{
-			ocispecv1.AnnotationTitle: "cachedimage",
-		},
-	}
-
-	// Pre-populate cache with the expected cache key format
-	testRef := reference.Reference{Path: "/path", Ref: "reference"}
-	mockCache.Set(testRef.String(), "", "cachedimage", descriptor)
-
 	proxy := &Proxy{
 		resolver: mockResolver,
 		cache:    mockCache,
 		conv:     defaultConverter,
+		// fd should not be called on a true cache hit.
 		fd: func(ctx context.Context, resolver registry.Resolver, ref reference.Reference, opts map[string]string) ([]ocispecv1.Descriptor, error) {
-			// This will be called because the cache key might not match
 			return []ocispecv1.Descriptor{descriptor}, nil
 		},
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/path/reference?title=cachedimage", nil)
 	w := httptest.NewRecorder()
-
-	proxy.ServeHTTP(w, req)
+	// Reuse the same request instance (already consumed above only for converter).
+	proxy.ServeHTTP(w, httptest.NewRequest(http.MethodGet, reqURL, nil))
 
 	if w.Code != http.StatusOK {
 		t.Errorf("Expected status 200, got %d", w.Code)
+	}
+	if cacheHeader := w.Header().Get("X-Cache"); cacheHeader == "MISS" {
+		t.Error("Expected cache HIT, got MISS — cache key mismatch")
 	}
 }
 

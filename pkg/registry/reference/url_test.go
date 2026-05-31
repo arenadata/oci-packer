@@ -169,20 +169,20 @@ func TestUrl_Manifests_WithTag(t *testing.T) {
 	urlObj := ref.URL(false)
 	manifestsURL := urlObj.Manifests()
 
-	if !strings.Contains(manifestsURL, "https://") {
-		t.Errorf("Expected https scheme in URL")
+	// Verify exact URL structure, not just substring presence.
+	parsed, err := url.Parse(manifestsURL)
+	if err != nil {
+		t.Fatalf("Manifests() returned unparseable URL %q: %v", manifestsURL, err)
 	}
-	if !strings.Contains(manifestsURL, "docker.io") {
-		t.Errorf("Expected docker.io in URL")
+	if parsed.Scheme != "https" {
+		t.Errorf("scheme = %q, want https", parsed.Scheme)
 	}
-	if !strings.Contains(manifestsURL, "/v2/") {
-		t.Errorf("Expected /v2/ in URL")
+	if !strings.HasSuffix(parsed.Host, "docker.io") {
+		t.Errorf("host = %q, want *docker.io", parsed.Host)
 	}
-	if !strings.Contains(manifestsURL, "/manifests/") {
-		t.Errorf("Expected /manifests/ in URL")
-	}
-	if !strings.Contains(manifestsURL, "/latest") {
-		t.Errorf("Expected tag /latest in URL")
+	wantPath := "/v2/library/nginx/manifests/latest"
+	if parsed.Path != wantPath {
+		t.Errorf("path = %q, want %q", parsed.Path, wantPath)
 	}
 }
 
@@ -198,14 +198,16 @@ func TestUrl_Manifests_WithDigest(t *testing.T) {
 	urlObj := ref.URL(false)
 	manifestsURL := urlObj.Manifests()
 
-	if !strings.Contains(manifestsURL, "https://") {
-		t.Errorf("Expected https scheme in URL")
+	parsed, err := url.Parse(manifestsURL)
+	if err != nil {
+		t.Fatalf("Manifests() returned unparseable URL %q: %v", manifestsURL, err)
 	}
-	if !strings.Contains(manifestsURL, "/manifests/") {
-		t.Errorf("Expected /manifests/ in URL")
+	if parsed.Scheme != "https" {
+		t.Errorf("scheme = %q, want https", parsed.Scheme)
 	}
-	if !strings.Contains(manifestsURL, dgst) {
-		t.Errorf("Expected digest %s in URL", dgst)
+	wantPath := "/v2/team/project/manifests/" + dgst
+	if parsed.Path != wantPath {
+		t.Errorf("path = %q, want %q", parsed.Path, wantPath)
 	}
 }
 
@@ -236,6 +238,8 @@ func TestUrl_Manifests_LocalRegistry(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestUrl_Blobs_WithTag(t *testing.T) {
+	// Blobs() returns the blobs endpoint for the repository; the Ref is appended
+	// as-is (tag or digest). Verify the exact path structure.
 	ref := Reference{
 		Scheme: RegistryScheme,
 		Host:   "docker.io",
@@ -246,17 +250,15 @@ func TestUrl_Blobs_WithTag(t *testing.T) {
 	urlObj := ref.URL(false)
 	blobsURL := urlObj.Blobs()
 
-	if !strings.Contains(blobsURL, "https://") {
-		t.Errorf("Expected https scheme in URL")
+	parsed, err := url.Parse(blobsURL)
+	if err != nil {
+		t.Fatalf("Blobs() returned unparseable URL %q: %v", blobsURL, err)
 	}
-	if !strings.Contains(blobsURL, "/v2/") {
-		t.Errorf("Expected /v2/ in URL")
+	if parsed.Scheme != "https" {
+		t.Errorf("scheme = %q, want https", parsed.Scheme)
 	}
-	if !strings.Contains(blobsURL, "/blobs/") {
-		t.Errorf("Expected /blobs/ in URL")
-	}
-	if !strings.Contains(blobsURL, "latest") {
-		t.Errorf("Expected tag latest in URL")
+	if !strings.HasPrefix(parsed.Path, "/v2/library/nginx/blobs/") {
+		t.Errorf("path = %q, want prefix /v2/library/nginx/blobs/", parsed.Path)
 	}
 }
 

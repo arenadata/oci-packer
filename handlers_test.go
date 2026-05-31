@@ -149,8 +149,8 @@ func TestFileHandler_PreservesPlatform(t *testing.T) {
 
 func TestWalkDirHandler_ReturnsOneDescriptorPerFile(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0600)
-	os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0600)
+	mustWriteFile(t, filepath.Join(dir, "a.txt"), []byte("a"))
+	mustWriteFile(t, filepath.Join(dir, "b.txt"), []byte("b"))
 
 	desc := Descriptor{From: "dir://" + dir}
 	result, err := walkDirHandler(desc)(context.Background())
@@ -164,7 +164,7 @@ func TestWalkDirHandler_ReturnsOneDescriptorPerFile(t *testing.T) {
 
 func TestWalkDirHandler_AnnotationTitleIsRelativePath(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "myfile.txt"), []byte("data"), 0600)
+	mustWriteFile(t, filepath.Join(dir, "myfile.txt"), []byte("data"))
 
 	desc := Descriptor{From: "dir://" + dir}
 	result, err := walkDirHandler(desc)(context.Background())
@@ -181,9 +181,34 @@ func TestWalkDirHandler_AnnotationTitleIsRelativePath(t *testing.T) {
 	}
 }
 
+func TestWalkDirHandler_AnnotationTitleIsRelativePath_Nested(t *testing.T) {
+	// Verify that for a file inside a subdirectory the title contains the
+	// full relative path (subdir/file.txt), not just the bare filename.
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "subdir")
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	mustWriteFile(t, filepath.Join(sub, "nested.txt"), []byte("n"))
+
+	desc := Descriptor{From: "dir://" + dir}
+	result, err := walkDirHandler(desc)(context.Background())
+	if err != nil {
+		t.Fatalf("walkDirHandler() error: %v", err)
+	}
+	if len(result) != 1 {
+		t.Fatalf("expected 1 descriptor, got %d", len(result))
+	}
+	want := filepath.Join("subdir", "nested.txt")
+	title := result[0].Annotations[ocispecv1.AnnotationTitle]
+	if title != want {
+		t.Errorf("AnnotationTitle = %q, want %q", title, want)
+	}
+}
+
 func TestWalkDirHandler_DescriptorFromFieldHasFileSchema(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "item.bin"), []byte("x"), 0600)
+	mustWriteFile(t, filepath.Join(dir, "item.bin"), []byte("x"))
 
 	desc := Descriptor{From: "dir://" + dir}
 	result, err := walkDirHandler(desc)(context.Background())
@@ -211,8 +236,8 @@ func TestWalkDirHandler_NestedFilesIncluded(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "subdir")
 	os.MkdirAll(sub, 0755)
-	os.WriteFile(filepath.Join(dir, "root.txt"), []byte("root"), 0600)
-	os.WriteFile(filepath.Join(sub, "nested.txt"), []byte("nested"), 0600)
+	mustWriteFile(t, filepath.Join(dir, "root.txt"), []byte("root"))
+	mustWriteFile(t, filepath.Join(sub, "nested.txt"), []byte("nested"))
 
 	desc := Descriptor{From: "dir://" + dir}
 	result, err := walkDirHandler(desc)(context.Background())
@@ -246,7 +271,7 @@ func TestWalkDirHandler_FilePathReturnsError(t *testing.T) {
 
 func TestWalkDirHandler_PreservesPlatform(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "blob.bin"), []byte("data"), 0600)
+	mustWriteFile(t, filepath.Join(dir, "blob.bin"), []byte("data"))
 
 	desc := Descriptor{From: "dir://" + dir, Platform: "linux/amd64"}
 	result, err := walkDirHandler(desc)(context.Background())
@@ -365,9 +390,24 @@ func TestHttpHandler_PreservesAnnotations(t *testing.T) {
 }
 
 func TestHttpHandler_InvalidURL(t *testing.T) {
-	desc := Descriptor{From: "http://127.0.0.1:0/nope"} // port 0 = nothing listening
+	// Start a real server then immediately close it so the port is unreachable
+	// but well-defined (avoids OS-specific behaviour around port 0).
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	addr := srv.URL
+	srv.Close()
+
+	desc := Descriptor{From: addr + "/nope"}
 	_, err := httpHandler(desc, t.TempDir())(context.Background())
 	if err == nil {
-		t.Fatal("expected connection error")
+		t.Fatal("expected connection error for closed server")
+	}
+}
+
+// mustWriteFile writes data to path and calls t.Fatal on error.
+// Use this in test setup instead of ignoring os.WriteFile errors.
+func mustWriteFile(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("mustWriteFile(%q): %v", path, err)
 	}
 }
