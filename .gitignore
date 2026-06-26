@@ -31,3 +31,9 @@ go.work.sum
 .idea/
 .vscode/
 bin/
+
+# GoReleaser output
+dist/
+
+# Locally built binary
+/oci-packer

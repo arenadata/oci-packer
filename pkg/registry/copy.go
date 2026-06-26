@@ -18,10 +18,13 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"sort"
 
 	"github.com/arenadata/oci-packer/internal/logger"
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
 	"github.com/containerd/containerd/v2/core/images"
+	"github.com/containerd/platforms"
 	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -66,6 +69,37 @@ func Copy(ctx context.Context, dst Pusher, src Fetcher, desc ocispecv1.Descripto
 	}
 
 	return copyDescriptor(ctx, dst, src, desc)
+}
+
+// SelectPlatform resolves an image to a single platform. If desc is an OCI
+// Index (multi-platform), it returns the child manifest descriptor that best
+// matches the given platform, erroring if none match. If desc is already a
+// single manifest, it is returned unchanged.
+func SelectPlatform(ctx context.Context, src Fetcher, desc ocispecv1.Descriptor, match platforms.MatchComparer) (ocispecv1.Descriptor, error) {
+	switch desc.MediaType {
+	case ocispecv1.MediaTypeImageIndex, images.MediaTypeDockerSchema2ManifestList:
+		var index ocispecv1.Index
+		if err := fetch(ctx, src, desc, &index); err != nil {
+			return ocispecv1.Descriptor{}, err
+		}
+
+		var matched []ocispecv1.Descriptor
+		for _, m := range index.Manifests {
+			if m.Platform != nil && match.Match(*m.Platform) {
+				matched = append(matched, m)
+			}
+		}
+		if len(matched) == 0 {
+			return ocispecv1.Descriptor{}, fmt.Errorf("no manifest in index matches the requested platform")
+		}
+
+		sort.SliceStable(matched, func(i, j int) bool {
+			return match.Less(*matched[i].Platform, *matched[j].Platform)
+		})
+		return matched[0], nil
+	}
+
+	return desc, nil
 }
 
 func copyDescriptor(ctx context.Context, dst Pusher, src Fetcher, desc ocispecv1.Descriptor) error {

@@ -20,20 +20,29 @@ import (
 	"github.com/arenadata/oci-packer/pkg/registry"
 	"github.com/arenadata/oci-packer/pkg/registry/oci-layout"
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
+	"github.com/containerd/platforms"
 	"github.com/spf13/cobra"
 )
 
 var copyCmd = &cobra.Command{
 	Use:   "copy <src> <dst>",
-	Short: "Copy OCI Pack between remote registry and OCI layout",
-	Args:  cobra.ExactArgs(2),
-	Run:   copyCmdRun,
+	Short: "Copy OCI Pack between remote registries and OCI layouts",
+	Long: `Copy images/artifacts between a remote registry (cr://) and/or an OCI layout (oci://).
+
+Any combination of endpoints is supported, including layout-to-layout. With --unpack the
+destination layout stores layers as unpacked directories, so copying an existing tar-mode
+layout into a new one with --unpack repacks it for 'oci-packer mount':
+
+    oci-packer copy --unpack oci://./layout:app:v1 oci://./unpacked:app:v1`,
+	Args: cobra.ExactArgs(2),
+	Run:  copyCmdRun,
 }
 
 func init() {
 	rootCmd.AddCommand(copyCmd)
 
-	copyCmd.Flags().Bool("unpack", false, "Use OCI layout with unpack Layers")
+	copyCmd.Flags().Bool("unpack", false, "Store layers unpacked in the destination OCI layout")
+	copyCmd.Flags().String("platform", "", "Copy only the given platform from a multi-platform image, e.g. linux/amd64")
 }
 
 func copyCmdRun(cmd *cobra.Command, args []string) {
@@ -42,39 +51,18 @@ func copyCmdRun(cmd *cobra.Command, args []string) {
 	log := logger.New("copy")
 	log.WithFields(map[string]any{"src": src, "dst": dst}).Debug("determining source and destination references")
 
-	var layoutOpts []layout.Option
-	if ok, _ := cmd.Flags().GetBool("unpack"); ok {
-		layoutOpts = append(layoutOpts, layout.Unpack())
+	unpack, _ := cmd.Flags().GetBool("unpack")
+
+	// --unpack describes how the destination stores layers; the source is read
+	// in whatever mode it already is (an existing layout reports its own mode).
+	srcRepo, srcType, err := newCopyEndpoint(cmd, src, false)
+	if err != nil {
+		log.WithError(err).WithField("src", src).Fatal("failed to create copy source")
 	}
 
-	var err error
-	var srcRepo, dstRepo registry.Resolver
-	var srcType, dstType string
-
-	if reference.OciScheme.IsPrefix(src) {
-		srcType, dstType = "OCI Layout", "Remote Registry"
-
-		srcRepo, err = layout.New(src, layoutOpts...)
-		if err != nil {
-			log.WithError(err).WithField("src", src).Fatal("failed to create OCI layout source")
-		}
-
-		dstRepo, err = remoteClientFromCommandArguments(cmd, dst)
-		if err != nil {
-			log.WithError(err).WithField("dst", dst).Fatal("failed to create remote registry destination")
-		}
-	} else {
-		srcType, dstType = "Remote Registry", "OCI Layout"
-
-		srcRepo, err = remoteClientFromCommandArguments(cmd, src)
-		if err != nil {
-			log.WithError(err).WithField("src", src).Fatal("failed to create remote registry destination")
-		}
-
-		dstRepo, err = layout.New(dst, layoutOpts...)
-		if err != nil {
-			log.WithError(err).WithField("dst", dst).Fatal("failed to create OCI layout source")
-		}
+	dstRepo, dstType, err := newCopyEndpoint(cmd, dst, unpack)
+	if err != nil {
+		log.WithError(err).WithField("dst", dst).Fatal("failed to create copy destination")
 	}
 
 	log.WithFields(map[string]any{"src_type": srcType, "dst_type": dstType}).Debug("resolvers initialized")
@@ -86,6 +74,20 @@ func copyCmdRun(cmd *cobra.Command, args []string) {
 
 	log.WithField("digest", desc.Digest).Info("source reference resolved")
 
+	if platform, _ := cmd.Flags().GetString("platform"); platform != "" {
+		p, err := platforms.Parse(platform)
+		if err != nil {
+			log.WithError(err).WithField("platform", platform).Fatal("invalid platform")
+		}
+
+		desc, err = registry.SelectPlatform(cmd.Context(), srcRepo, desc, platforms.Only(p))
+		if err != nil {
+			log.WithError(err).WithField("platform", platform).Fatal("failed to select platform")
+		}
+		log.WithFields(map[string]any{"platform": platforms.Format(p), "digest": desc.Digest}).
+			Info("selected platform manifest")
+	}
+
 	if err = registry.Copy(cmd.Context(), dstRepo, srcRepo, desc); err != nil {
 		log.WithError(err).WithFields(map[string]any{"src": src, "dst": dst}).Fatal("copy operation failed")
 	}
@@ -96,4 +98,21 @@ func copyCmdRun(cmd *cobra.Command, args []string) {
 	}
 
 	log.Info("copy operation completed successfully")
+}
+
+// newCopyEndpoint builds a resolver for a copy endpoint based on its scheme:
+// oci:// is an OCI layout (unpack applies when it is the destination), anything
+// else is a remote registry.
+func newCopyEndpoint(cmd *cobra.Command, ref string, unpack bool) (registry.Resolver, string, error) {
+	if reference.OciScheme.IsPrefix(ref) {
+		var opts []layout.Option
+		if unpack {
+			opts = append(opts, layout.Unpack())
+		}
+		r, err := layout.New(ref, opts...)
+		return r, "OCI Layout", err
+	}
+
+	r, err := remoteClientFromCommandArguments(cmd, ref)
+	return r, "Remote Registry", err
 }

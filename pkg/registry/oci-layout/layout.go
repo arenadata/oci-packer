@@ -29,6 +29,7 @@ import (
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
 
 	"github.com/containerd/containerd/v2/core/images"
+	"github.com/containerd/platforms"
 	"github.com/klauspost/compress/gzip"
 	"github.com/klauspost/compress/zstd"
 	"github.com/moby/go-archive"
@@ -300,7 +301,26 @@ func (l Layout) Push(ctx context.Context, desc ocispecv1.Descriptor, r io.Reader
 	}
 
 	switch desc.MediaType {
-	case ocispecv1.MediaTypeImageLayer:
+	case ocispecv1.MediaTypeImageLayer,
+		ocispecv1.MediaTypeImageLayerGzip, images.MediaTypeDockerSchema2LayerGzip,
+		ocispecv1.MediaTypeImageLayerZstd, images.MediaTypeDockerSchema2LayerZstd:
+		// Filesystem layer. In tar mode it is stored verbatim so its digest is
+		// preserved; only unpack mode decompresses and extracts it into a
+		// directory.
+		if !l.unpack {
+			return l.writeBlob(desc, r)
+		}
+		return l.unpackLayer(desc, r)
+
+	default:
+		return l.writeBlob(desc, r)
+	}
+}
+
+// unpackLayer decompresses a layer per its media type and extracts it into a
+// directory under the blobs path (unpack mode only).
+func (l Layout) unpackLayer(desc ocispecv1.Descriptor, r io.Reader) error {
+	switch desc.MediaType {
 	case ocispecv1.MediaTypeImageLayerGzip, images.MediaTypeDockerSchema2LayerGzip:
 		gz, err := gzip.NewReader(r)
 		if err != nil {
@@ -316,17 +336,10 @@ func (l Layout) Push(ctx context.Context, desc ocispecv1.Descriptor, r io.Reader
 		}
 		defer zr.Close()
 		r = zr
-
-	default:
-		return l.writeBlob(desc, r)
 	}
 
-	if l.unpack {
-		destDir := l.getBlobPath(desc.Digest)
-		return archive.Unpack(r, destDir, &archive.TarOptions{WhiteoutFormat: -1})
-	}
-
-	return l.writeBlob(desc, r)
+	destDir := l.getBlobPath(desc.Digest)
+	return archive.Unpack(r, destDir, &archive.TarOptions{WhiteoutFormat: -1})
 }
 
 func (l Layout) writeBlob(desc ocispecv1.Descriptor, r io.Reader) error {
@@ -405,4 +418,149 @@ func (l Layout) MountFrom(ctx context.Context, ref reference.Reference) (ocispec
 		return ocispecv1.Descriptor{}, err
 	}
 	return desc, nil
+}
+
+// readJSONBlob opens the blob identified by dgst and decodes it into v.
+func (l Layout) readJSONBlob(dgst digest.Digest, v any) error {
+	f, err := os.Open(l.getBlobPath(dgst))
+	if err != nil {
+		return fmt.Errorf("failed to open blob '%s': %w", dgst, err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if err = json.NewDecoder(f).Decode(v); err != nil {
+		return fmt.Errorf("failed to decode blob '%s': %w", dgst, err)
+	}
+	return nil
+}
+
+// readManifestBlob decodes the manifest blob referenced by desc. The caller
+// must have already resolved any index to a concrete manifest descriptor.
+func (l Layout) readManifestBlob(desc ocispecv1.Descriptor) (ocispecv1.Manifest, error) {
+	switch desc.MediaType {
+	case ocispecv1.MediaTypeImageIndex, images.MediaTypeDockerSchema2ManifestList:
+		return ocispecv1.Manifest{}, fmt.Errorf("descriptor '%s' is an index, not a manifest", desc.Digest)
+	}
+
+	var manifest ocispecv1.Manifest
+	if err := l.readJSONBlob(desc.Digest, &manifest); err != nil {
+		return ocispecv1.Manifest{}, err
+	}
+	return manifest, nil
+}
+
+// resolveManifest resolves ref to a single image manifest. If ref points to an
+// OCI Index (multi-platform), the manifest matching the host platform is
+// selected via containerd/platforms.
+func (l Layout) resolveManifest(ctx context.Context, ref reference.Reference) (ocispecv1.Manifest, error) {
+	desc, err := l.Resolve(ctx, ref)
+	if err != nil {
+		return ocispecv1.Manifest{}, err
+	}
+
+	switch desc.MediaType {
+	case ocispecv1.MediaTypeImageIndex, images.MediaTypeDockerSchema2ManifestList:
+		var index ocispecv1.Index
+		if err = l.readJSONBlob(desc.Digest, &index); err != nil {
+			return ocispecv1.Manifest{}, err
+		}
+
+		match := platforms.Only(platforms.DefaultSpec())
+		for _, m := range index.Manifests {
+			if m.Platform != nil && match.Match(*m.Platform) {
+				return l.readManifestBlob(m)
+			}
+		}
+		return ocispecv1.Manifest{}, fmt.Errorf("no manifest in index matches host platform %s",
+			platforms.Format(platforms.DefaultSpec()))
+	}
+
+	return l.readManifestBlob(desc)
+}
+
+// isImageConfig reports whether mt identifies an OCI/Docker container image
+// config. Only manifests with such a config describe a filesystem and can be
+// overlay-mounted; arbitrary OCI artifacts cannot.
+func isImageConfig(mt string) bool {
+	switch mt {
+	case ocispecv1.MediaTypeImageConfig, images.MediaTypeDockerSchema2Config:
+		return true
+	}
+	return false
+}
+
+// LayerDirs returns absolute paths to the unpacked layer directories of ref in
+// bottom-to-top order (as recorded in the manifest). The reference must select
+// a single container image inside the layout (e.g. oci://./layout:repo/name:tag);
+// non-image artifacts are rejected. The layout must be in unpack mode. If ref
+// resolves to an OCI Index, the manifest matching the host platform is selected
+// automatically.
+func (l Layout) LayerDirs(ctx context.Context, ref reference.Reference) ([]string, error) {
+	manifest, err := l.resolveManifest(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+
+	if !isImageConfig(manifest.Config.MediaType) {
+		return nil, fmt.Errorf("reference is not a container image (config media type %q); "+
+			"only images can be mounted", manifest.Config.MediaType)
+	}
+
+	if !l.unpack {
+		return nil, fmt.Errorf("layout is not in unpack mode; re-copy with --unpack")
+	}
+
+	dirs := make([]string, 0, len(manifest.Layers))
+	for i, layer := range manifest.Layers {
+		dir := l.getBlobPath(layer.Digest)
+		st, err := os.Stat(dir)
+		if err != nil {
+			return nil, fmt.Errorf("layer[%d] '%s': %w", i, layer.Digest, err)
+		}
+		if !st.IsDir() {
+			return nil, fmt.Errorf("layer[%d] '%s' is not an unpacked directory", i, layer.Digest)
+		}
+		dirs = append(dirs, dir)
+	}
+	return dirs, nil
+}
+
+// VerifyLayers recomputes the digest of each layer blob and compares it to the
+// digest recorded in the manifest, returning an error on the first mismatch.
+//
+// Verification is only reliable in tar mode (the original compressed layer
+// bytes are stored as-is). In unpack mode the original bytes are discarded,
+// so the recorded digest cannot be reproduced and VerifyLayers returns an
+// error directing the caller to verify before unpacking.
+func (l Layout) VerifyLayers(ctx context.Context, ref reference.Reference) error {
+	if l.unpack {
+		return fmt.Errorf("layer verification is not supported on unpack-mode layouts: " +
+			"the original compressed layer bytes are not retained; verify before unpacking " +
+			"(copy without --unpack, then 'oci-packer mount --verify')")
+	}
+
+	log := logger.New("verify_layers")
+	manifest, err := l.resolveManifest(ctx, ref)
+	if err != nil {
+		return err
+	}
+
+	for i, layer := range manifest.Layers {
+		f, err := os.Open(l.getBlobPath(layer.Digest))
+		if err != nil {
+			return fmt.Errorf("layer[%d] '%s': %w", i, layer.Digest, err)
+		}
+
+		actual, err := digest.FromReader(f)
+		_ = f.Close()
+		if err != nil {
+			return fmt.Errorf("layer[%d] '%s': %w", i, layer.Digest, err)
+		}
+
+		if actual != layer.Digest {
+			return fmt.Errorf("layer[%d] digest mismatch: expected %s, got %s", i, layer.Digest, actual)
+		}
+		log.WithField("digest", layer.Digest).Debug("layer verified")
+	}
+	return nil
 }

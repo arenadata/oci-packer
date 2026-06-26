@@ -157,6 +157,17 @@ items:
 
 ## Установка
 
+Готовые бинарники для Linux, macOS и Windows публикуются на
+[странице релизов](https://github.com/arenadata/oci-packer/releases) (собираются GoReleaser).
+Скачайте архив под свою платформу и распакуйте бинарь в `PATH`:
+
+```bash
+tar -xzf oci-packer_*_linux_amd64.tar.gz
+sudo install oci-packer /usr/local/bin/
+```
+
+Через Go:
+
 ```bash
 go install github.com/arenadata/oci-packer/cmd/oci-packer@latest
 ```
@@ -170,6 +181,14 @@ go build ./cmd/...
 ```
 
 **Требования:** Go 1.26+
+
+## Документация
+
+Полная документация по командам и решение проблем — в каталоге [`docs/`](docs/README.md):
+
+- [Хаб документации](docs/README.md) — указатель на все команды
+- [`pack`](docs/pack.md) · [`copy`](docs/copy.md) · [`proxy`](docs/proxy.md) · [`mount` / `umount`](docs/mount.md)
+- [Troubleshooting](docs/troubleshooting.md) — типичные ошибки и их устранение
 
 ## Использование
 
@@ -189,13 +208,48 @@ oci-packer -f artifact.yaml registry.example.com/myartifact:v1.0 --tmp-dir /tmp/
 oci-packer copy \
   cr://source-registry.example.com/image:tag \
   oci://target/directory:image:tag
+
+# Скопировать только одну платформу из мультиплатформенного образа
+oci-packer copy --platform linux/arm64 \
+  cr://source-registry.example.com/image:tag \
+  oci://target/directory:image:tag
 ```
+
+При `--platform` из OCI Index выбирается манифест нужной платформы, и в назначение
+копируется одноплатформенный образ. Формат — `ОС/архитектура[/вариант]`, напр.
+`linux/amd64`, `linux/arm64`, `linux/arm/v7`.
 
 ### Режим прокси
 
 ```bash
 oci-packer proxy cr://registry.example.com
 ```
+
+### Монтирование слоёв (`mount` / `umount`, только Linux)
+
+Команда `mount` монтирует слои **образа** из распакованного OCI Layout (созданного через
+`copy --unpack`) в директорию **только для чтения** через overlayfs. Один layout может
+содержать много образов, поэтому ссылка указывает конкретный образ:
+`oci://<каталог>:<репозиторий>:<тег>`. Записываемые пути (`/tmp`, `/run`, `/var/tmp`)
+автоматически монтируются как tmpfs.
+
+```bash
+# Скачать образ в OCI Layout с распаковкой слоёв
+oci-packer copy --unpack cr://registry.example.com/example/service:v1 oci://./layout:example/service:v1
+
+# Смонтировать read-only rootfs образа (нужен root)
+sudo oci-packer mount oci://./layout:example/service:v1 /mnt/app
+
+# С writable bind-директорией и постоянным systemd-юнитом
+sudo oci-packer mount oci://./layout:example/service:v1 /mnt/app \
+  --bind /srv/data:/var/lib/app \
+  --persistent --unit-dir /etc/systemd/system --enable
+
+# Размонтировать всё (overlay + tmpfs + bind) одной командой
+sudo oci-packer umount /mnt/app
+```
+
+Подробное описание, флаги и ограничения — в [docs/mount.md](docs/mount.md).
 
 ## Зависимости
 
@@ -220,12 +274,12 @@ oci-packer proxy cr://registry.example.com
 - [x] Поддержка OCI Layout (с распаковкой слоёв)
 - [x] Структурированное логирование
 - [x] Юнит-тесты
-- [x] CLI-команды: `proxy`, `copy`
+- [x] CLI-команды: `proxy`, `copy`, `mount`, `umount`
 - [ ] E2E tests
 - [ ] Прогресс-бар
 - [ ] Поддержка S3-хендлера
 - [ ] CLI-команда: список компонентов (`list`)
-- [ ] CLI-команда: монтирование (`mount`)
+- [x] CLI-команда: монтирование (`mount`, `umount`)
 
 ## Лицензия
 
@@ -385,6 +439,17 @@ items:
 
 ## Installation
 
+Prebuilt binaries for Linux, macOS and Windows are published on the
+[releases page](https://github.com/arenadata/oci-packer/releases) (built with GoReleaser).
+Download the archive for your platform and put the binary on your `PATH`:
+
+```bash
+tar -xzf oci-packer_*_linux_amd64.tar.gz
+sudo install oci-packer /usr/local/bin/
+```
+
+Via Go:
+
 ```bash
 go install github.com/arenadata/oci-packer/cmd/oci-packer@latest
 ```
@@ -398,6 +463,14 @@ go build ./cmd/...
 ```
 
 **Requirements:** Go 1.26+
+
+## Documentation
+
+Full per-command documentation and troubleshooting live in [`docs/`](docs/README.md):
+
+- [Documentation hub](docs/README.md) — index of all commands
+- [`pack`](docs/pack.md) · [`copy`](docs/copy.md) · [`proxy`](docs/proxy.md) · [`mount` / `umount`](docs/mount.md)
+- [Troubleshooting](docs/troubleshooting.md) — common errors and fixes
 
 ## Usage
 
@@ -417,13 +490,47 @@ oci-packer -f artifact.yaml registry.example.com/myartifact:v1.0 --tmp-dir /tmp/
 oci-packer copy \
   cr://source-registry.example.com/image:tag \
   oci://target/directory:image:tag
+
+# Copy only a single platform from a multi-platform image
+oci-packer copy --platform linux/arm64 \
+  cr://source-registry.example.com/image:tag \
+  oci://target/directory:image:tag
 ```
+
+With `--platform`, the manifest for the requested platform is selected from an OCI Index and a
+single-platform image is copied to the destination. The format is `os/arch[/variant]`, e.g.
+`linux/amd64`, `linux/arm64`, `linux/arm/v7`.
 
 ### Proxy mode
 
 ```bash
 oci-packer proxy cr://registry.example.com
 ```
+
+### Mounting layers (`mount` / `umount`, Linux only)
+
+The `mount` command mounts the layers of an **image** from an unpacked OCI Layout (produced by
+`copy --unpack`) onto a directory **read-only** via overlayfs. A single layout may hold many
+images, so the reference selects one: `oci://<dir>:<repository>:<tag>`. Writable paths
+(`/tmp`, `/run`, `/var/tmp`) are mounted as tmpfs automatically.
+
+```bash
+# Pull an image into an OCI Layout with unpacked layers
+oci-packer copy --unpack cr://registry.example.com/example/service:v1 oci://./layout:example/service:v1
+
+# Mount the image's read-only rootfs (requires root)
+sudo oci-packer mount oci://./layout:example/service:v1 /mnt/app
+
+# With a writable bind directory and a persistent systemd unit
+sudo oci-packer mount oci://./layout:example/service:v1 /mnt/app \
+  --bind /srv/data:/var/lib/app \
+  --persistent --unit-dir /etc/systemd/system --enable
+
+# Unmount everything (overlay + tmpfs + bind) in one go
+sudo oci-packer umount /mnt/app
+```
+
+See [docs/mount.md](docs/mount.md) for the full description, flags and limitations.
 
 ## Dependencies
 
@@ -448,11 +555,11 @@ oci-packer proxy cr://registry.example.com
 - [x] OCI Layout support (with layer extraction)
 - [x] Structured logging
 - [x] Unit tests
-- [x] CLI commands: `proxy`, `copy`
+- [x] CLI commands: `proxy`, `copy`, `mount`, `umount`
 - [ ] E2E tests
 - [ ] S3 source handler
 - [ ] CLI command: list components
-- [ ] CLI command: mount
+- [x] CLI command: mount, umount
 - [ ] Progress bar
 
 ## License
