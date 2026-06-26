@@ -307,8 +307,7 @@ func FuzzParse(f *testing.F) {
 				!errors.Is(err, ErrHostnameRequired) &&
 				!errors.Is(err, ErrSchemeRequired) &&
 				!errors.Is(err, ErrSchemeUnsupported) {
-				// url.Parse and other low-level errors may also surface.
-				_ = err
+				t.Errorf("Parse(%q) returned undocumented error type %T: %v", input, err, err)
 			}
 		}
 	})

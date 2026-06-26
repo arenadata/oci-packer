@@ -235,7 +235,9 @@ func TestWalkDirHandler_EmptyDirReturnsNoDescriptors(t *testing.T) {
 func TestWalkDirHandler_NestedFilesIncluded(t *testing.T) {
 	dir := t.TempDir()
 	sub := filepath.Join(dir, "subdir")
-	os.MkdirAll(sub, 0755)
+	if err := os.MkdirAll(sub, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
 	mustWriteFile(t, filepath.Join(dir, "root.txt"), []byte("root"))
 	mustWriteFile(t, filepath.Join(sub, "nested.txt"), []byte("nested"))
 

@@ -257,8 +257,9 @@ func TestUrl_Blobs_WithTag(t *testing.T) {
 	if parsed.Scheme != "https" {
 		t.Errorf("scheme = %q, want https", parsed.Scheme)
 	}
-	if !strings.HasPrefix(parsed.Path, "/v2/library/nginx/blobs/") {
-		t.Errorf("path = %q, want prefix /v2/library/nginx/blobs/", parsed.Path)
+	wantPath := "/v2/library/nginx/blobs/latest"
+	if parsed.Path != wantPath {
+		t.Errorf("path = %q, want %q", parsed.Path, wantPath)
 	}
 }
 
