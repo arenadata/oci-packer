@@ -187,8 +187,25 @@ go build ./cmd/...
 Полная документация по командам и решение проблем — в каталоге [`docs/`](docs/README.md):
 
 - [Хаб документации](docs/README.md) — указатель на все команды
-- [`pack`](docs/pack.md) · [`copy`](docs/copy.md) · [`proxy`](docs/proxy.md) · [`mount` / `umount`](docs/mount.md) · [`delete`](docs/delete.md)
+- [`pack`](docs/pack.md) · [`copy`](docs/copy.md) · [`proxy`](docs/proxy.md) · [`mount` / `umount`](docs/mount.md) · [`delete`](docs/delete.md) · [`list`](docs/list.md)
 - [Troubleshooting](docs/troubleshooting.md) — типичные ошибки и их устранение
+
+### Просмотр содержимого layout (`list`)
+
+Одна команда `list` работает в двух режимах в зависимости от ссылки: без
+`:repo:tag` — список образов и артефактов в OCI layout; со ссылкой на образ —
+компоненты (config и слои) выбранного Pack, с именами файлов из аннотации
+`org.opencontainers.image.title`.
+
+```bash
+# Список образов в layout
+oci-packer list oci://./layout
+
+# Компоненты одного Pack (для индекса — по каждой платформе)
+oci-packer list oci://./layout:example/service:v1
+```
+
+Подробности — в [docs/list.md](docs/list.md).
 
 ### Удаление образа из layout (`delete`)
 
@@ -290,11 +307,11 @@ sudo oci-packer umount /mnt/app
 - [x] Поддержка OCI Layout (с распаковкой слоёв)
 - [x] Структурированное логирование
 - [x] Юнит-тесты
-- [x] CLI-команды: `proxy`, `copy`, `mount`, `umount`, `delete`
+- [x] CLI-команды: `proxy`, `copy`, `mount`, `umount`, `delete`, `list`
 - [ ] E2E tests
 - [ ] Прогресс-бар
 - [ ] Поддержка S3-хендлера
-- [ ] CLI-команда: список компонентов (`list`)
+- [x] CLI-команда: список образов и компонентов Pack (`list`)
 - [x] CLI-команда: монтирование (`mount`, `umount`)
 - [x] CLI-команда: удаление образа из layout (`delete`)
 
@@ -486,8 +503,25 @@ go build ./cmd/...
 Full per-command documentation and troubleshooting live in [`docs/`](docs/README.md):
 
 - [Documentation hub](docs/README.md) — index of all commands
-- [`pack`](docs/pack.md) · [`copy`](docs/copy.md) · [`proxy`](docs/proxy.md) · [`mount` / `umount`](docs/mount.md) · [`delete`](docs/delete.md)
+- [`pack`](docs/pack.md) · [`copy`](docs/copy.md) · [`proxy`](docs/proxy.md) · [`mount` / `umount`](docs/mount.md) · [`delete`](docs/delete.md) · [`list`](docs/list.md)
 - [Troubleshooting](docs/troubleshooting.md) — common errors and fixes
+
+### Inspect a layout (`list`)
+
+A single `list` command works in two modes depending on the reference: without a
+`:repo:tag` it lists the images and artifacts in the layout; with an image
+reference it shows the components (config and layers) of that one Pack, with file
+names taken from the `org.opencontainers.image.title` annotation.
+
+```bash
+# List images in a layout
+oci-packer list oci://./layout
+
+# Components of one Pack (per platform for an index)
+oci-packer list oci://./layout:example/service:v1
+```
+
+See [docs/list.md](docs/list.md) for details.
 
 ### Delete an image from a layout (`delete`)
 
@@ -588,10 +622,10 @@ See [docs/mount.md](docs/mount.md) for the full description, flags and limitatio
 - [x] OCI Layout support (with layer extraction)
 - [x] Structured logging
 - [x] Unit tests
-- [x] CLI commands: `proxy`, `copy`, `mount`, `umount`, `delete`
+- [x] CLI commands: `proxy`, `copy`, `mount`, `umount`, `delete`, `list`
 - [ ] E2E tests
 - [ ] S3 source handler
-- [ ] CLI command: list components
+- [x] CLI command: list images and Pack components (`list`)
 - [x] CLI command: mount, umount
 - [x] CLI command: delete image from layout (`delete`)
 - [ ] Progress bar

@@ -17,7 +17,6 @@ package cmd
 
 import (
 	"github.com/arenadata/oci-packer/internal/logger"
-	"github.com/arenadata/oci-packer/pkg/registry/oci-layout"
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
 
 	"github.com/spf13/cobra"
@@ -53,23 +52,14 @@ func deleteCmdRun(cmd *cobra.Command, args []string) {
 	src := args[0]
 	log := logger.New("delete")
 
-	parsedRef, err := reference.Parse(src)
+	l, err := openLayout(src)
 	if err != nil {
-		log.WithError(err).WithField("src", src).Fatal("failed to parse reference")
-	}
-
-	resolver, err := layout.Open(parsedRef)
-	if err != nil {
-		log.WithError(err).WithField("src", src).Fatal("failed to open OCI layout")
-	}
-	l, ok := resolver.(*layout.Layout)
-	if !ok {
-		log.Fatal("reference is not an OCI layout")
+		log.WithError(err).Fatal("failed to open layout")
 	}
 
 	if err = l.Delete(cmd.Context(), reference.Reference{}); err != nil {
 		log.WithError(err).WithField("src", src).Fatal("failed to delete image")
 	}
 
-	log.WithField("ref", parsedRef.Ref).Info("image deleted from layout")
+	log.WithField("src", src).Info("image deleted from layout")
 }

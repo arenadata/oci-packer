@@ -12,6 +12,7 @@ Documentation hub for the `oci-packer` CLI. Start at the
 | `oci-packer proxy` | [proxy.md](proxy.md) | Serve OCI artifacts over plain HTTP (Beta) |
 | `oci-packer mount` / `umount` | [mount.md](mount.md) | Mount an image from an unpacked OCI layout read-only via overlayfs (Linux only) |
 | `oci-packer delete` (`rm`) | [delete.md](delete.md) | Delete an image from an OCI layout, garbage-collecting unshared blobs |
+| `oci-packer list` (`ls`) | [list.md](list.md) | List images in an OCI layout, or the components of one Pack |
 
 ## Reference
 
