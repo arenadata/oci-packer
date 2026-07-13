@@ -11,6 +11,7 @@ Documentation hub for the `oci-packer` CLI. Start at the
 | `oci-packer copy` | [copy.md](copy.md) | Copy images/artifacts between a remote registry and an OCI layout (optionally one platform, optionally unpacked) |
 | `oci-packer proxy` | [proxy.md](proxy.md) | Serve OCI artifacts over plain HTTP (Beta) |
 | `oci-packer mount` / `umount` | [mount.md](mount.md) | Mount an image from an unpacked OCI layout read-only via overlayfs (Linux only) |
+| `oci-packer delete` (`rm`) | [delete.md](delete.md) | Delete an image from an OCI layout, garbage-collecting unshared blobs |
 
 ## Reference
 

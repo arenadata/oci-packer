@@ -187,8 +187,24 @@ go build ./cmd/...
 Полная документация по командам и решение проблем — в каталоге [`docs/`](docs/README.md):
 
 - [Хаб документации](docs/README.md) — указатель на все команды
-- [`pack`](docs/pack.md) · [`copy`](docs/copy.md) · [`proxy`](docs/proxy.md) · [`mount` / `umount`](docs/mount.md)
+- [`pack`](docs/pack.md) · [`copy`](docs/copy.md) · [`proxy`](docs/proxy.md) · [`mount` / `umount`](docs/mount.md) · [`delete`](docs/delete.md)
 - [Troubleshooting](docs/troubleshooting.md) — типичные ошибки и их устранение
+
+### Удаление образа из layout (`delete`)
+
+Удаляет образ из OCI layout и собирает мусор — блобы, на которые больше никто не
+ссылается. Общие слои, используемые другими образами в этом layout, сохраняются;
+смонтированный слой (unpack-режим, Linux) удалить нельзя, пока он не размонтирован.
+
+```bash
+# Удалить образ; общие с другими образами слои остаются
+oci-packer delete oci://./layout:example/service:v1
+
+# Короткий алиас
+oci-packer rm oci://./layout:example/worker:v2
+```
+
+Подробности — в [docs/delete.md](docs/delete.md).
 
 ## Использование
 
@@ -274,12 +290,13 @@ sudo oci-packer umount /mnt/app
 - [x] Поддержка OCI Layout (с распаковкой слоёв)
 - [x] Структурированное логирование
 - [x] Юнит-тесты
-- [x] CLI-команды: `proxy`, `copy`, `mount`, `umount`
+- [x] CLI-команды: `proxy`, `copy`, `mount`, `umount`, `delete`
 - [ ] E2E tests
 - [ ] Прогресс-бар
 - [ ] Поддержка S3-хендлера
 - [ ] CLI-команда: список компонентов (`list`)
 - [x] CLI-команда: монтирование (`mount`, `umount`)
+- [x] CLI-команда: удаление образа из layout (`delete`)
 
 ## Лицензия
 
@@ -469,8 +486,24 @@ go build ./cmd/...
 Full per-command documentation and troubleshooting live in [`docs/`](docs/README.md):
 
 - [Documentation hub](docs/README.md) — index of all commands
-- [`pack`](docs/pack.md) · [`copy`](docs/copy.md) · [`proxy`](docs/proxy.md) · [`mount` / `umount`](docs/mount.md)
+- [`pack`](docs/pack.md) · [`copy`](docs/copy.md) · [`proxy`](docs/proxy.md) · [`mount` / `umount`](docs/mount.md) · [`delete`](docs/delete.md)
 - [Troubleshooting](docs/troubleshooting.md) — common errors and fixes
+
+### Delete an image from a layout (`delete`)
+
+Removes an image from an OCI layout and garbage-collects the blobs nothing else
+references. Layers shared with other images in the layout are kept; a mounted
+layer (unpack mode, Linux) cannot be deleted until it is unmounted.
+
+```bash
+# Delete an image; layers shared with other images are retained
+oci-packer delete oci://./layout:example/service:v1
+
+# Short alias
+oci-packer rm oci://./layout:example/worker:v2
+```
+
+See [docs/delete.md](docs/delete.md) for details.
 
 ## Usage
 
@@ -555,11 +588,12 @@ See [docs/mount.md](docs/mount.md) for the full description, flags and limitatio
 - [x] OCI Layout support (with layer extraction)
 - [x] Structured logging
 - [x] Unit tests
-- [x] CLI commands: `proxy`, `copy`, `mount`, `umount`
+- [x] CLI commands: `proxy`, `copy`, `mount`, `umount`, `delete`
 - [ ] E2E tests
 - [ ] S3 source handler
 - [ ] CLI command: list components
 - [x] CLI command: mount, umount
+- [x] CLI command: delete image from layout (`delete`)
 - [ ] Progress bar
 
 ## License
