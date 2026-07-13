@@ -39,6 +39,17 @@ import (
 // reports the mounted layers so the caller can 'oci-packer umount' first.
 // Mounting is Linux-only, so this guard is a no-op on other platforms.
 func (l Layout) Delete(_ context.Context, ref reference.Reference) error {
+	// Serialise against a concurrent copy/delete on the same layout: without the
+	// lock this GC can classify a layer that a concurrent copy is adding (and
+	// deduplicating against) as an orphan and remove it, or the two index writes
+	// can clobber each other. Held until the function returns; the OS drops it if
+	// the process is killed mid-delete.
+	unlock, err := l.Lock()
+	if err != nil {
+		return fmt.Errorf("failed to lock layout %q: %w", l.ref.Path, err)
+	}
+	defer unlock()
+
 	index, err := l.readIndex()
 	if err != nil {
 		return err

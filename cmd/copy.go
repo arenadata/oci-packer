@@ -88,6 +88,18 @@ func copyCmdRun(cmd *cobra.Command, args []string) {
 			Info("selected platform manifest")
 	}
 
+	// Hold an exclusive cross-process lock across the whole push + tag sequence
+	// when the destination is a local layout, so a concurrent 'delete' can't GC a
+	// shared layer we rely on and the two index writes can't clobber each other.
+	// Remote registries manage their own consistency and expose no Lock.
+	if locker, ok := dstRepo.(interface{ Lock() (func(), error) }); ok {
+		unlock, err := locker.Lock()
+		if err != nil {
+			log.WithError(err).WithField("dst", dst).Fatal("failed to lock destination layout")
+		}
+		defer unlock()
+	}
+
 	if err = registry.Copy(cmd.Context(), dstRepo, srcRepo, desc); err != nil {
 		log.WithError(err).WithFields(map[string]any{"src": src, "dst": dst}).Fatal("copy operation failed")
 	}
