@@ -71,6 +71,34 @@ func TestMount_ReadOnly(t *testing.T) {
 	}
 }
 
+func TestMount_SingleLayer(t *testing.T) {
+	requireRoot(t)
+
+	base := t.TempDir()
+	lower := filepath.Join(base, "l1")
+	target := filepath.Join(base, "merged")
+	writeFile(t, filepath.Join(lower, "only.txt"), "solo")
+
+	// A single read-only layer must mount — overlayfs rejects one lowerdir, so Mount
+	// falls back to a read-only bind (single-layer images: busybox, alpine, …).
+	if err := Mount(MountOptions{LowerDirs: []string{lower}, Target: target}); err != nil {
+		t.Fatalf("Mount single layer: %v", err)
+	}
+	defer func() { _ = Unmount(target, true) }()
+
+	if _, err := os.Stat(filepath.Join(target, "only.txt")); err != nil {
+		t.Errorf("expected only.txt in the mounted view: %v", err)
+	}
+	// The mount must be read-only.
+	if err := os.WriteFile(filepath.Join(target, "new.txt"), []byte("x"), 0644); !errors.Is(err, syscall.EROFS) {
+		t.Errorf("single-layer mount must be read-only (EROFS), got %v", err)
+	}
+	// MountedUnder must see it (a generic /proc/mounts scan, not overlay-type-specific).
+	if m, err := MountedUnder(target); err != nil || len(m) == 0 {
+		t.Errorf("MountedUnder must detect the single-layer mount: got %v, err %v", m, err)
+	}
+}
+
 func TestMountTmpfs_Writable(t *testing.T) {
 	requireRoot(t)
 
