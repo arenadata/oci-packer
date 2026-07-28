@@ -28,6 +28,7 @@ A flat **manifest** is produced unless any item has a `platform` field or a regi
 |------|-------------|
 | `-f, --file` | Path to the pack file (**required**) |
 | `--tmp-dir` | Directory for HTTP downloads (default: system temp) |
+| `-j, --parallel` | Number of sources to download and blobs to upload at a time (default `4`; `1` does them one by one) |
 | `-l, --login` | Registry username |
 | `-p, --password` | Registry password |
 | `--plain-http` | Allow plaintext HTTP to the registry (no TLS) |
@@ -35,6 +36,24 @@ A flat **manifest** is produced unless any item has a `platform` field or a regi
 | `-v, --verbose` | Verbose (debug) logging |
 
 `--plain-http` and `--insecure` are mutually exclusive.
+
+## Parallel transfers
+
+Packing is two rounds of waiting on the network: pulling the sources in, then pushing the blobs
+out. `-j` is the ceiling on both — it is one budget for the whole run, not one per phase — so a
+pack of six `http://` sources fetches them a few at a time instead of one after another, and the
+layers go up the same way. Lower it when a registry rate-limits you; `-j 1` does everything in
+order, one at a time.
+
+Two guarantees hold whatever `-j` is set to:
+
+- **Layers keep the order the pack file gave them**, and so do the manifests of a multi-platform
+  index. Uploads finish in whatever order the network decides; positions do not move.
+- **Each blob is uploaded once.** Two items naming the same bytes are still two layers with their
+  own titles, but one upload — as is the empty config every manifest of an index shares.
+
+If a transfer fails the pack stops, and what is reported is the failure itself rather than the
+cancellation it set off.
 
 ## Pack file
 

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/arenadata/oci-packer/internal/logger"
+	"github.com/arenadata/oci-packer/internal/parallel"
 	"github.com/arenadata/oci-packer/pkg/registry"
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/docker/go-units"
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 )
 
 type Pusher interface {
@@ -42,6 +44,8 @@ type index struct {
 
 	Manifests   []manifest
 	Annotations map[string]string
+
+	budget *parallel.Budget
 }
 
 func (i index) Push(ctx context.Context, pusher registry.Pusher) (ocispecv1.Descriptor, error) {
@@ -53,32 +57,41 @@ func (i index) Push(ctx context.Context, pusher registry.Pusher) (ocispecv1.Desc
 		MediaType:    ocispecv1.MediaTypeImageIndex,
 		ArtifactType: i.Type,
 		Annotations:  i.Annotations,
+		// Sized up front: the manifests go up concurrently, but the index has to
+		// list them in the order the pack file gave.
+		Manifests: make([]ocispecv1.Descriptor, len(i.Manifests)),
 	}
 
-	for _, m := range i.Manifests {
+	err := i.budget.Each(ctx, len(i.Manifests), func(ctx context.Context, n int) error {
+		m := i.Manifests[n]
 		log.Debug("push manifest")
 
 		desc, err := m.Push(ctx, pusher)
 		if err != nil {
 			log.WithError(err).Errorf("failed to push manifest")
-			return ocispecv1.Descriptor{}, err
+			return err
 		}
 
 		if len(m.Platform) > 0 {
 			p, err := platforms.Parse(m.Platform)
 			if err != nil {
 				log.WithError(err).WithField("platform", m.Platform).Errorf("failed to parse platform")
-				return ocispecv1.Descriptor{}, err
+				return err
 			}
 			desc.Platform = &p
 			log.WithField("platform", platforms.FormatAll(p)).Debug("descriptor created for platform")
 		}
 
-		index.Manifests = append(index.Manifests, desc)
+		index.Manifests[n] = desc
+
+		return nil
+	})
+	if err != nil {
+		return ocispecv1.Descriptor{}, err
 	}
 
 	log.WithField("manifests_count", len(index.Manifests)).Debug("committing index manifest")
-	return commit(ctx, pusher, index, index.MediaType, index.ArtifactType)
+	return commit(ctx, i.budget, pusher, index, index.MediaType, index.ArtifactType)
 }
 
 type manifest struct {
@@ -86,29 +99,42 @@ type manifest struct {
 	Type        string
 	Descriptors []Descriptor
 	Platform    string
+
+	budget *parallel.Budget
 }
 
 func (m manifest) Push(ctx context.Context, pusher registry.Pusher) (ocispecv1.Descriptor, error) {
 	log := logger.New("manifest_push")
 	log.Debug("building manifest")
 
-	configDescriptor, err := m.pushConfig(ctx, pusher)
-	if err != nil {
-		log.WithError(err).WithField("digest", configDescriptor.Digest).Error("failed to push config")
-		return ocispecv1.Descriptor{}, err
-	}
-
-	log.WithField("digest", configDescriptor.Digest).Debug("config pushed successfully")
-
 	manifest := ocispecv1.Manifest{
 		Versioned:    specs.Versioned{SchemaVersion: 2},
 		MediaType:    ocispecv1.MediaTypeImageManifest,
 		ArtifactType: m.Type,
-		Config:       configDescriptor,
 		Annotations:  m.Annotations,
+		// Sized up front: the layers go up concurrently, but the manifest has to
+		// list them in the order the pack file gave.
+		Layers: make([]ocispecv1.Descriptor, len(m.Descriptors)),
 	}
 
-	for _, d := range m.Descriptors {
+	// The config and the layers are independent blobs, so they all go together.
+	// Position 0 is the config, keeping the order a sequential pack used.
+	const configSlot = 0
+
+	err := m.budget.Each(ctx, len(m.Descriptors)+1, func(ctx context.Context, n int) error {
+		if n == configSlot {
+			desc, err := m.pushConfig(ctx, pusher)
+			if err != nil {
+				log.WithError(err).WithField("digest", desc.Digest).Error("failed to push config")
+				return err
+			}
+			log.WithField("digest", desc.Digest).Debug("config pushed successfully")
+			manifest.Config = desc
+
+			return nil
+		}
+
+		d := m.Descriptors[n-1]
 		handler := m.pushFile
 		if reference.IsOCI(d.From) {
 			handler = m.mount
@@ -116,14 +142,19 @@ func (m manifest) Push(ctx context.Context, pusher registry.Pusher) (ocispecv1.D
 
 		desc, err := handler(ctx, pusher, d)
 		if err != nil {
-			return ocispecv1.Descriptor{}, err
+			return err
 		}
 		log.WithField("digest", desc.Digest).Debug("pushed descriptor layer")
-		manifest.Layers = append(manifest.Layers, desc)
+		manifest.Layers[n-1] = desc
+
+		return nil
+	})
+	if err != nil {
+		return ocispecv1.Descriptor{}, err
 	}
 
 	log.WithField("layers_count", len(manifest.Layers)).Debug("committing manifest")
-	return commit(ctx, pusher, manifest, manifest.MediaType, manifest.ArtifactType)
+	return commit(ctx, m.budget, pusher, manifest, manifest.MediaType, manifest.ArtifactType)
 }
 
 func (m manifest) mount(ctx context.Context, pusher registry.Pusher, d Descriptor) (ocispecv1.Descriptor, error) {
@@ -135,7 +166,11 @@ func (m manifest) mount(ctx context.Context, pusher registry.Pusher, d Descripto
 		return ocispecv1.Descriptor{}, err
 	}
 
-	desc, err := pusher.MountFrom(ctx, parsedRef)
+	var desc ocispecv1.Descriptor
+	err = m.budget.Slot(ctx, func() (err error) {
+		desc, err = pusher.MountFrom(ctx, parsedRef)
+		return err
+	})
 	if err != nil {
 		log.WithError(err).WithField("from", ref).Error("failed to mount repository")
 	} else {
@@ -144,53 +179,89 @@ func (m manifest) mount(ctx context.Context, pusher registry.Pusher, d Descripto
 	return desc, err
 }
 
+// pushFile reads a local file, works out its descriptor and uploads it. Reading
+// the file to digest it is as much of the cost as the upload, so both happen
+// inside the same slot.
 func (m manifest) pushFile(ctx context.Context, pusher registry.Pusher, d Descriptor) (ocispecv1.Descriptor, error) {
 	log := logger.New("push_file")
 
-	desc, r, err := d.FileToOciDescriptor()
-	if err != nil {
-		log.WithError(err).Error("failed to prepare layer descriptor")
-		return ocispecv1.Descriptor{}, err
-	}
-	defer func() { _ = r.Close() }()
-	log.WithField("digest", desc.Digest).Debug("prepared layer")
+	var desc ocispecv1.Descriptor
+	err := m.budget.Slot(ctx, func() error {
+		var r io.ReadCloser
+		var err error
 
-	fields := map[string]any{
-		"digest":   desc.Digest,
-		"size":     units.BytesSize(float64(desc.Size)),
-		"filepath": strings.TrimPrefix(d.From, reference.FileSchema.String()),
-	}
-
-	log.WithFields(fields).Debug("upload file")
-
-	now := time.Now()
-	err = pusher.Push(ctx, desc, r)
-
-	fields["digest"] = desc.Digest
-	fields["duration"] = time.Since(now).Round(time.Millisecond).String()
-
-	if err != nil {
-		if !registry.IsAlreadyExists(err) {
-			log.WithError(err).WithFields(fields).Error("uploaded file failed")
-			return ocispecv1.Descriptor{}, err
+		desc, r, err = d.FileToOciDescriptor()
+		if err != nil {
+			log.WithError(err).Error("failed to prepare layer descriptor")
+			return err
 		}
-		log.WithFields(fields).Info("file already uploaded")
-	} else {
+		defer func() { _ = r.Close() }()
+		log.WithField("digest", desc.Digest).Debug("prepared layer")
+
+		fields := map[string]any{
+			"digest":   desc.Digest,
+			"size":     units.BytesSize(float64(desc.Size)),
+			"filepath": strings.TrimPrefix(d.From, reference.FileSchema.String()),
+		}
+
+		log.WithFields(fields).Debug("upload file")
+
+		now := time.Now()
+		// Two items of a pack can name the same bytes — and give them different
+		// titles — so the descriptors differ while the blob behind them does not.
+		err = m.budget.Once(ctx, desc.Digest, func() error {
+			return upload(ctx, pusher, desc, r, log.WithFields(fields))
+		})
+
+		fields["duration"] = time.Since(now).Round(time.Millisecond).String()
+
+		if err != nil {
+			log.WithError(err).WithFields(fields).Error("uploaded file failed")
+			return err
+		}
+
 		log.WithFields(fields).Info("file uploaded")
+
+		return nil
+	})
+	if err != nil {
+		return ocispecv1.Descriptor{}, err
 	}
 
 	return desc, nil
 }
 
+// upload pushes a blob, treating "the destination already has it" as the success
+// it is. Swallowing that here rather than at the call site keeps it out of the
+// budget's record of what went wrong — it is not a failure, and filing it as one
+// would make it the error reported for something else entirely.
+func upload(ctx context.Context, pusher registry.Pusher, desc ocispecv1.Descriptor, r io.Reader, log *logrus.Entry) error {
+	if err := pusher.Push(ctx, desc, r); err != nil {
+		if !registry.IsAlreadyExists(err) {
+			return err
+		}
+		log.Debug("destination already has this blob")
+	}
+
+	return nil
+}
+
 func (m manifest) pushConfig(ctx context.Context, pusher registry.Pusher) (ocispecv1.Descriptor, error) {
 	if m.Config == nil {
-		r := bytes.NewReader(ocispecv1.DescriptorEmptyJSON.Data)
-		if err := pusher.Push(ctx, ocispecv1.DescriptorEmptyJSON, r); err != nil {
-			if !registry.IsAlreadyExists(err) {
-				return ocispecv1.Descriptor{}, err
-			}
+		log := logger.New("push_config")
+		desc := ocispecv1.DescriptorEmptyJSON
+
+		// Every manifest of an index synthesises the same empty config, so this
+		// is the one blob a multi-platform pack is guaranteed to push twice.
+		err := m.budget.Slot(ctx, func() error {
+			return m.budget.Once(ctx, desc.Digest, func() error {
+				return upload(ctx, pusher, desc, bytes.NewReader(desc.Data), log)
+			})
+		})
+		if err != nil {
+			return ocispecv1.Descriptor{}, err
 		}
-		return ocispecv1.DescriptorEmptyJSON, nil
+		return desc, nil
 	}
 
 	return m.pushFile(ctx, pusher, m.Config.ToDescriptor())
@@ -205,15 +276,18 @@ func newDescriptorWithReader(manifest any, mt string) (ocispecv1.Descriptor, io.
 	return NewDescriptorFromBytes(mt, b), bytes.NewReader(b), nil
 }
 
-func commit(ctx context.Context, pusher registry.Pusher, v any, mt, at string) (ocispecv1.Descriptor, error) {
+func commit(ctx context.Context, b *parallel.Budget, pusher registry.Pusher, v any, mt, at string) (ocispecv1.Descriptor, error) {
 	desc, r, err := newDescriptorWithReader(v, mt)
 	if err != nil {
 		return ocispecv1.Descriptor{}, err
 	}
-	if err = pusher.Push(ctx, desc, r); err != nil {
-		if !registry.IsAlreadyExists(err) {
-			return ocispecv1.Descriptor{}, err
-		}
+
+	log := logger.New("commit")
+	err = b.Slot(ctx, func() error {
+		return b.Once(ctx, desc.Digest, func() error { return upload(ctx, pusher, desc, r, log) })
+	})
+	if err != nil {
+		return ocispecv1.Descriptor{}, err
 	}
 	desc.ArtifactType = at
 

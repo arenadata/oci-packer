@@ -18,26 +18,22 @@ package registry
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"sort"
-	"sync"
 
 	"github.com/arenadata/oci-packer/internal/logger"
+	"github.com/arenadata/oci-packer/internal/parallel"
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
 	"github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/platforms"
 	"github.com/opencontainers/go-digest"
 	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
-	"golang.org/x/sync/errgroup"
 )
 
 // DefaultConcurrency is how many blobs Copy transfers at once when the caller
-// does not ask for a specific number. Layer transfers are dominated by network
-// and disk latency, so a few in flight saturate a link far better than one while
-// staying polite to the registry.
-const DefaultConcurrency = 4
+// does not ask for a specific number.
+const DefaultConcurrency = parallel.DefaultConcurrency
 
 // CopyOption configures a Copy call.
 type CopyOption func(*copyOptions)
@@ -77,30 +73,13 @@ func Copy(ctx context.Context, dst Pusher, src Fetcher, desc ocispecv1.Descripto
 		options.concurrency = 1
 	}
 
-	c := &copier{
-		dst:   dst,
-		src:   src,
-		limit: options.concurrency,
-		slots: make(chan struct{}, options.concurrency),
-		tasks: make(map[digest.Digest]*copyTask),
-	}
-
-	err := c.copy(ctx, desc, nil)
-	if err == nil {
-		return nil
-	}
+	c := &copier{dst: dst, src: src, budget: parallel.NewBudget(options.concurrency)}
 
 	// Report what actually went wrong. The first failure cancels every other
 	// transfer in flight, so by the time the error unwinds there are several
 	// context.Canceled results racing it, and whichever one an errgroup happened
 	// to see first would otherwise be all the user is told.
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.failure != nil {
-		return c.failure
-	}
-
-	return err
+	return c.budget.Cause(c.copy(ctx, desc, nil))
 }
 
 // ancestors is the chain of descriptors being walked above the current one, kept
@@ -132,43 +111,12 @@ func (a *ancestors) contains(dgst digest.Digest) bool {
 	return false
 }
 
-// copyTask is the shared outcome of copying one descriptor and everything under
-// it. The goroutine that claimed the digest closes done when it has finished;
-// everyone else asking for the same digest waits on it and reuses err.
-type copyTask struct {
-	done chan struct{}
-	err  error
-}
-
-// copier holds the state of a single Copy call: the two endpoints, the slots
-// that cap parallelism, and the table of digests already claimed.
+// copier holds the state of a single Copy call: the two endpoints and the
+// budget that caps how much of the image is in flight.
 type copier struct {
-	dst   Pusher
-	src   Fetcher
-	limit int
-	slots chan struct{}
-
-	mu      sync.Mutex
-	tasks   map[digest.Digest]*copyTask
-	failure error
-}
-
-// record remembers the first genuine failure of the run, so Copy can report it
-// instead of the cancellation fallout it triggered. Context errors are skipped:
-// they are what every other transfer returns once the run is being torn down,
-// never the reason it is being torn down.
-func (c *copier) record(err error) error {
-	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return err
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.failure == nil {
-		c.failure = err
-	}
-
-	return err
+	dst    Pusher
+	src    Fetcher
+	budget *parallel.Budget
 }
 
 // copy copies desc and everything it references, at most once per digest.
@@ -178,11 +126,11 @@ func (c *copier) record(err error) error {
 // which is exponential in the nesting depth — a few tens of kilobytes of
 // manifests can then cost gigabytes of live goroutines.
 //
-// Waiting on another goroutine's work is safe because the descriptor graph
-// cannot contain a loop: every reference is a digest and fetch checks that what
-// came back really hashes to it, so a loop would need a hash cycle. Every wait
-// therefore points from a node to one of its children, and a cycle of waits
-// would have to be a cycle in the graph itself.
+// The walk holds no slot while it waits, so Once is safe to call here — and
+// waiting cannot loop, because the descriptor graph cannot: every reference is a
+// digest and fetch checks that what came back really hashes to it, so a loop
+// would need a hash cycle. Every wait therefore points from a node to one of its
+// children, and a cycle of waits would have to be a cycle in the graph itself.
 func (c *copier) copy(ctx context.Context, desc ocispecv1.Descriptor, path *ancestors) error {
 	// Bail early: once a sibling has failed the group context is cancelled, and
 	// there is nothing to gain from work that is only going to be thrown away.
@@ -190,37 +138,10 @@ func (c *copier) copy(ctx context.Context, desc ocispecv1.Descriptor, path *ance
 		return err
 	}
 
-	c.mu.Lock()
-	task, claimed := c.tasks[desc.Digest]
-	if !claimed {
-		task = &copyTask{done: make(chan struct{})}
-		c.tasks[desc.Digest] = task
-	}
-	c.mu.Unlock()
-
-	if claimed {
-		select {
-		case <-task.done:
-			return task.err
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
-
-	// Overwritten on every normal return below. The placeholder only survives an
-	// abnormal unwind — a Pusher that panics, a test double calling t.Fatal —
-	// where waiters would otherwise sit on a channel nobody is left to close.
-	task.err = fmt.Errorf("copy of '%s' did not complete", desc.Digest)
-	defer close(task.done)
-
-	task.err = c.record(c.walk(ctx, desc, path))
-
-	return task.err
+	return c.budget.Once(ctx, desc.Digest, func() error { return c.walk(ctx, desc, path) })
 }
 
-// walk copies everything desc references and only then desc itself. It is split
-// out of copy so that every failure anywhere in the tree passes through record
-// on its way up.
+// walk copies everything desc references and only then desc itself.
 func (c *copier) walk(ctx context.Context, desc ocispecv1.Descriptor, path *ancestors) error {
 	if path.contains(desc.Digest) {
 		return fmt.Errorf("descriptor '%s' is reachable from itself", desc.Digest)
@@ -258,7 +179,7 @@ func (c *copier) walk(ctx context.Context, desc ocispecv1.Descriptor, path *ance
 // thirty: the flag caps everything this copy asks of the endpoints, not just the
 // bytes of the layers.
 func (c *copier) fetchJSON(ctx context.Context, desc ocispecv1.Descriptor, v any) error {
-	return c.withSlot(ctx, func() error { return fetch(ctx, c.src, desc, v) })
+	return c.budget.Slot(ctx, func() error { return fetch(ctx, c.src, desc, v) })
 }
 
 // manifestChildren lists everything a manifest references, in the order the
@@ -278,49 +199,17 @@ func manifestChildren(manifest ocispecv1.Manifest) []ocispecv1.Descriptor {
 // copyAll copies a set of sibling descriptors and returns once every one of them
 // has landed in the destination. The first failure cancels the rest.
 func (c *copier) copyAll(ctx context.Context, descs []ocispecv1.Descriptor, path *ancestors) error {
-	if c.limit < 2 || len(descs) < 2 {
-		for _, desc := range descs {
-			if err := c.copy(ctx, desc, path); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	group, groupCtx := errgroup.WithContext(ctx)
-	for _, desc := range descs {
-		group.Go(func() error { return c.copy(groupCtx, desc, path) })
-	}
-
-	return group.Wait()
+	return c.budget.Each(ctx, len(descs), func(ctx context.Context, n int) error {
+		return c.copy(ctx, descs[n], path)
+	})
 }
 
 // transferBlob moves one blob, holding a slot for as long as the bytes are
-// flowing.
+// flowing. Only talking to the endpoints takes a slot, so however wide or deep
+// the tree gets, the slots cannot all be occupied by goroutines waiting on their
+// children.
 func (c *copier) transferBlob(ctx context.Context, desc ocispecv1.Descriptor) error {
-	return c.withSlot(ctx, func() error { return copyDescriptor(ctx, c.dst, c.src, desc) })
-}
-
-// withSlot runs fn holding one of the -j slots. Only talking to the endpoints
-// takes a slot, and never while waiting on something else: a goroutine waiting
-// on its children, or on a transfer another goroutine owns, holds none. So
-// however wide or deep the tree gets, the slots cannot all be occupied by
-// waiters and stall the copy.
-func (c *copier) withSlot(ctx context.Context, fn func() error) error {
-	// A free slot and a cancelled context are both ready cases below, and select
-	// would pick between them at random; cancellation has to win.
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-
-	select {
-	case c.slots <- struct{}{}:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-	defer func() { <-c.slots }()
-
-	return fn()
+	return c.budget.Slot(ctx, func() error { return copyDescriptor(ctx, c.dst, c.src, desc) })
 }
 
 // SelectPlatform resolves an image to a single platform. If desc is an OCI

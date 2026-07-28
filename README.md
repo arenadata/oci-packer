@@ -233,7 +233,15 @@ oci-packer -f artifact.yaml registry.example.com/myartifact:v1.0
 
 # Указать временную директорию для HTTP-загрузок
 oci-packer -f artifact.yaml registry.example.com/myartifact:v1.0 --tmp-dir /tmp/packer
+
+# Качать источники и заливать слои по 16 штук одновременно (по умолчанию 4)
+oci-packer -f artifact.yaml registry.example.com/myartifact:v1.0 -j 16
 ```
+
+`-j`/`--parallel` — общий потолок на обе фазы упаковки: и на скачивание источников,
+и на загрузку блобов. Порядок слоёв в манифесте (и манифестов в индексе) сохраняется
+как в pack-файле, а одинаковые байты заливаются один раз. `-j 1` возвращает
+последовательную работу.
 
 ### Копирование между реестрами
 
@@ -558,7 +566,14 @@ oci-packer -f artifact.yaml registry.example.com/myartifact:v1.0
 
 # Specify temp directory for HTTP downloads
 oci-packer -f artifact.yaml registry.example.com/myartifact:v1.0 --tmp-dir /tmp/packer
+
+# Download sources and upload layers 16 at a time (the default is 4)
+oci-packer -f artifact.yaml registry.example.com/myartifact:v1.0 -j 16
 ```
+
+`-j`/`--parallel` is one ceiling covering both phases of a pack — pulling the sources in and
+pushing the blobs out. Layers keep the order the pack file gave them (as do the manifests of an
+index), and identical bytes are uploaded once. `-j 1` does everything in order, one at a time.
 
 ### Copy between registries
 

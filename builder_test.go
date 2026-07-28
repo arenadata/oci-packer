@@ -20,10 +20,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/arenadata/oci-packer/internal/parallel"
 	"github.com/arenadata/oci-packer/pkg/registry"
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
 	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -88,7 +91,7 @@ func TestHandleItem_FileHandler(t *testing.T) {
 	f := writeTestFile(t, "blob.bin", "contents")
 	item := Descriptor{From: "file://" + f}
 
-	result, err := handleItem(context.Background(), item, builderOptions{})
+	result, err := handleItem(context.Background(), item, builderOptions{}, parallel.NewBudget(DefaultConcurrency))
 	if err != nil {
 		t.Fatalf("handleItem() error: %v", err)
 	}
@@ -103,7 +106,7 @@ func TestHandleItem_DirHandler(t *testing.T) {
 	writeTestFileInDir(t, dir, "b.bin", "bbb")
 
 	item := Descriptor{From: "dir://" + dir}
-	result, err := handleItem(context.Background(), item, builderOptions{})
+	result, err := handleItem(context.Background(), item, builderOptions{}, parallel.NewBudget(DefaultConcurrency))
 	if err != nil {
 		t.Fatalf("handleItem() error: %v", err)
 	}
@@ -115,7 +118,7 @@ func TestHandleItem_DirHandler(t *testing.T) {
 func TestHandleItem_UnsupportedSource(t *testing.T) {
 	// OCI sources (oci://, cr://) are not handled by handleItem — they return an error
 	item := Descriptor{From: "oci://registry/image:latest"}
-	_, err := handleItem(context.Background(), item, builderOptions{})
+	_, err := handleItem(context.Background(), item, builderOptions{}, parallel.NewBudget(DefaultConcurrency))
 	if err == nil {
 		t.Fatal("expected error for OCI source in handleItem")
 	}
@@ -126,7 +129,7 @@ func TestHandleItem_UnsupportedSource(t *testing.T) {
 
 func TestHandleItem_MissingFile(t *testing.T) {
 	item := Descriptor{From: "file:///nonexistent/file.bin"}
-	_, err := handleItem(context.Background(), item, builderOptions{})
+	_, err := handleItem(context.Background(), item, builderOptions{}, parallel.NewBudget(DefaultConcurrency))
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}
@@ -134,7 +137,7 @@ func TestHandleItem_MissingFile(t *testing.T) {
 
 func TestHandleItem_MissingDir(t *testing.T) {
 	item := Descriptor{From: "dir:///nonexistent/dir"}
-	_, err := handleItem(context.Background(), item, builderOptions{})
+	_, err := handleItem(context.Background(), item, builderOptions{}, parallel.NewBudget(DefaultConcurrency))
 	if err == nil {
 		t.Fatal("expected error for missing directory")
 	}
@@ -216,9 +219,9 @@ func TestPackPack_ManifestWithSingleFile(t *testing.T) {
 	//   1 push — the synthesised config blob
 	//   1 push — the image manifest itself
 	const minExpectedPushes = 3
-	if pusher.pushCount < minExpectedPushes {
+	if pusher.count() < minExpectedPushes {
 		t.Errorf("expected at least %d push calls (blob+config+manifest), got %d",
-			minExpectedPushes, pusher.pushCount)
+			minExpectedPushes, pusher.count())
 	}
 }
 
@@ -299,21 +302,47 @@ func TestPackPack_AlreadyExistsIsIgnored(t *testing.T) {
 // mock helpers
 // ---------------------------------------------------------------------------
 
+// mockPusher counts pushes. Packing uploads blobs concurrently, so it is called
+// from several goroutines at once.
 type mockPusher struct {
-	pushCount           int
 	alwaysAlreadyExists bool
+
+	mu        sync.Mutex
+	pushCount int
+	pushed    []ocispecv1.Descriptor
 }
 
 func (m *mockPusher) MountFrom(context.Context, reference.Reference) (ocispecv1.Descriptor, error) {
 	return ocispecv1.Descriptor{}, nil
 }
 
-func (m *mockPusher) Push(context.Context, ocispecv1.Descriptor, io.Reader) error {
+func (m *mockPusher) Push(_ context.Context, desc ocispecv1.Descriptor, r io.Reader) error {
+	if _, err := io.Copy(io.Discard, r); err != nil {
+		return err
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.pushCount++
+	m.pushed = append(m.pushed, desc)
+
 	if m.alwaysAlreadyExists {
 		return registry.ErrAlreadyExists
 	}
 	return nil
+}
+
+// pushes returns the descriptors received so far, in completion order.
+func (m *mockPusher) pushes() []ocispecv1.Descriptor {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.pushed)
+}
+
+func (m *mockPusher) count() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.pushCount
 }
 
 func (m *mockPusher) SetTag(context.Context, ocispecv1.Descriptor) error {
@@ -346,20 +375,18 @@ func TestPackPack_ContextCancelledDuringPush(t *testing.T) {
 	_, _ = p.Pack(ctx, pusher)
 }
 
-// mockCancelPusher cancels the context on its first Push call.
+// mockCancelPusher cancels the context on its first Push call. Uploads run
+// concurrently, so "first" has to be decided under a lock.
 type mockCancelPusher struct {
 	cancel context.CancelFunc
-	called bool
+	once   sync.Once
 }
 
 func (m *mockCancelPusher) MountFrom(_ context.Context, _ reference.Reference) (ocispecv1.Descriptor, error) {
 	return ocispecv1.Descriptor{}, nil
 }
 func (m *mockCancelPusher) Push(ctx context.Context, _ ocispecv1.Descriptor, _ io.Reader) error {
-	if !m.called {
-		m.called = true
-		m.cancel()
-	}
+	m.once.Do(m.cancel)
 	return ctx.Err()
 }
 func (m *mockCancelPusher) SetTag(_ context.Context, _ ocispecv1.Descriptor) error { return nil }

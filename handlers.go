@@ -29,6 +29,7 @@ import (
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
 
 	remoteerror "github.com/containerd/containerd/v2/core/remotes/errors"
+	"github.com/opencontainers/go-digest"
 	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -153,8 +154,13 @@ func httpHandler(desc Descriptor, tmpDir string) ConvertHandler {
 			return nil, remoteerror.NewUnexpectedStatusErr(resp)
 		}
 
-		filename := path.Base(req.URL.Path)
-		filePath := filepath.Join(tmpDir, filename)
+		// Each source downloads into a directory of its own, named after the URL.
+		// Two items can share a basename — .../linux/app.tar.gz and
+		// .../darwin/app.tar.gz — and writing both to tmpDir/app.tar.gz gives one
+		// item the other's bytes. The name is derived from the URL rather than
+		// picked at random so ResponseToFile can still skip a file already
+		// downloaded by an earlier run.
+		filePath := filepath.Join(tmpDir, sourceKey(desc.From), path.Base(req.URL.Path))
 
 		log.WithFields(map[string]any{
 			"url":  desc.From,
@@ -175,6 +181,12 @@ func httpHandler(desc Descriptor, tmpDir string) ConvertHandler {
 		descriptors = append(descriptors, desc)
 		return
 	}
+}
+
+// sourceKey is a short, stable directory name for a download source, unique per
+// URL so that two sources cannot write over each other.
+func sourceKey(url string) string {
+	return digest.FromString(url).Encoded()[:12]
 }
 
 func ociHandler(desc Descriptor) ConvertHandler {

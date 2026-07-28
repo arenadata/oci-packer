@@ -57,7 +57,8 @@ func init() {
 	_ = rootCmd.MarkFlagRequired("file")
 
 	rootCmd.Flags().String("tmp-dir", "", "Path to the temporary directory.")
-
+	rootCmd.Flags().IntP("parallel", "j", packer.DefaultConcurrency,
+		"Number of sources to download and blobs to upload simultaneously (1 does them one at a time)")
 }
 
 func Execute() {
@@ -73,10 +74,16 @@ func packRun(cmd *cobra.Command, args []string) {
 	file, _ := cmd.Flags().GetString("file")
 	tmpDir, _ := cmd.Flags().GetString("tmp-dir")
 
+	parallel, _ := cmd.Flags().GetInt("parallel")
+	if parallel < 1 {
+		log.WithField("parallel", parallel).Fatal("--parallel must be at least 1")
+	}
+
 	log.WithFields(map[string]any{
 		"version":   version.Version(),
 		"pack_file": file,
 		"tmp_dir":   tmpDir,
+		"parallel":  parallel,
 		"reference": ref,
 	}).Debug("command configuration")
 
@@ -97,7 +104,8 @@ func packRun(cmd *cobra.Command, args []string) {
 		"reference":   ref,
 	}).Debug("starting pack operation")
 
-	desc, err := packManifest.Pack(cmd.Context(), repoClient, packer.WithTmpDir(tmpDir))
+	desc, err := packManifest.Pack(cmd.Context(), repoClient,
+		packer.WithTmpDir(tmpDir), packer.WithConcurrency(parallel))
 	if err != nil {
 		log.WithError(err).Fatal("pack operation failed")
 	}
