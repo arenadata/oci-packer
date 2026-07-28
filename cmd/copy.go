@@ -33,7 +33,11 @@ Any combination of endpoints is supported, including layout-to-layout. With --un
 destination layout stores layers as unpacked directories, so copying an existing tar-mode
 layout into a new one with --unpack repacks it for 'oci-packer mount':
 
-    oci-packer copy --unpack oci://./layout:app:v1 oci://./unpacked:app:v1`,
+    oci-packer copy --unpack oci://./layout:app:v1 oci://./unpacked:app:v1
+
+Layers are transferred in parallel, -j at a time. A manifest is written only once every blob
+it references has arrived, and each digest is transferred once even when several manifests of
+a multi-platform index share it.`,
 	Args: cobra.ExactArgs(2),
 	Run:  copyCmdRun,
 }
@@ -43,6 +47,8 @@ func init() {
 
 	copyCmd.Flags().Bool("unpack", false, "Store layers unpacked in the destination OCI layout")
 	copyCmd.Flags().String("platform", "", "Copy only the given platform from a multi-platform image, e.g. linux/amd64")
+	copyCmd.Flags().IntP("parallel", "j", registry.DefaultConcurrency,
+		"Number of layers to copy simultaneously (1 copies them one at a time)")
 }
 
 func copyCmdRun(cmd *cobra.Command, args []string) {
@@ -52,6 +58,11 @@ func copyCmdRun(cmd *cobra.Command, args []string) {
 	log.WithFields(map[string]any{"src": src, "dst": dst}).Debug("determining source and destination references")
 
 	unpack, _ := cmd.Flags().GetBool("unpack")
+
+	parallel, _ := cmd.Flags().GetInt("parallel")
+	if parallel < 1 {
+		log.WithField("parallel", parallel).Fatal("--parallel must be at least 1")
+	}
 
 	// --unpack describes how the destination stores layers; the source is read
 	// in whatever mode it already is (an existing layout reports its own mode).
@@ -100,7 +111,9 @@ func copyCmdRun(cmd *cobra.Command, args []string) {
 		defer unlock()
 	}
 
-	if err = registry.Copy(cmd.Context(), dstRepo, srcRepo, desc); err != nil {
+	log.WithField("parallel", parallel).Info("copying")
+
+	if err = registry.Copy(cmd.Context(), dstRepo, srcRepo, desc, registry.WithConcurrency(parallel)); err != nil {
 		log.WithError(err).WithFields(map[string]any{"src": src, "dst": dst}).Fatal("copy operation failed")
 	}
 

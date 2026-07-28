@@ -265,6 +265,59 @@ func TestFetch_Success(t *testing.T) {
 	assert.Equal(t, blobData, data)
 }
 
+// TestFetch_ManifestUsesManifestsEndpoint pins the endpoint split. A registry
+// stores manifests apart from blobs and answers 404 for a manifest digest under
+// /blobs/, which is what used to break every 'copy cr://... oci://...' at the
+// very first fetch.
+func TestFetch_ManifestUsesManifestsEndpoint(t *testing.T) {
+	manifestBytes := []byte(`{"schemaVersion":2}`)
+
+	for _, tc := range []struct {
+		name      string
+		mediaType string
+		wantPath  string
+	}{
+		{"oci manifest", ocispecv1.MediaTypeImageManifest, "manifests"},
+		{"oci index", ocispecv1.MediaTypeImageIndex, "manifests"},
+		{"docker manifest", images.MediaTypeDockerSchema2Manifest, "manifests"},
+		{"docker manifest list", images.MediaTypeDockerSchema2ManifestList, "manifests"},
+		{"layer", ocispecv1.MediaTypeImageLayerGzip, "blobs"},
+		{"config", ocispecv1.MediaTypeImageConfig, "blobs"},
+		{"no descriptor attached", "", "blobs"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var requested, accept string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requested, accept = r.URL.Path, r.Header.Get("Accept")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(manifestBytes)
+			}))
+			defer server.Close()
+
+			ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+			client, _ := NewRegistryClient(ref, WithPlainHttp())
+
+			dgst := digest.FromBytes(manifestBytes)
+			desc := ocispecv1.Descriptor{MediaType: tc.mediaType, Digest: dgst, Size: int64(len(manifestBytes))}
+
+			fetchRef := reference.Reference{Ref: dgst.String()}
+			if tc.mediaType != "" {
+				fetchRef = fetchRef.WithDescriptor(desc)
+			}
+
+			reader, err := client.Fetch(context.Background(), fetchRef)
+			require.NoError(t, err)
+			defer func() { _ = reader.Close() }()
+
+			assert.Equal(t, "/v2/library/image/"+tc.wantPath+"/"+dgst.String(), requested)
+			if tc.wantPath == "manifests" {
+				assert.Contains(t, accept, tc.mediaType,
+					"a manifest request must say which manifest type it accepts")
+			}
+		})
+	}
+}
+
 func TestFetch_NotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -606,7 +659,9 @@ func TestFetchJson_Success(t *testing.T) {
 	}
 	manifestBytes, _ := json.Marshal(manifestData)
 
+	var requested string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = r.URL.Path
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(manifestBytes)
 	}))
@@ -623,9 +678,12 @@ func TestFetchJson_Success(t *testing.T) {
 	}
 
 	var manifest ocispecv1.Manifest
-	err := c.fetchJson(context.Background(), desc, &manifest)
+	err := c.fetchJson(context.Background(), desc, "other/repo", &manifest)
 	require.NoError(t, err)
 	assert.Equal(t, manifestData.SchemaVersion, manifest.SchemaVersion)
+
+	// The manifest is read by digest, from the repository being mounted out of.
+	assert.Equal(t, "/v2/other/repo/manifests/"+desc.Digest.String(), requested)
 }
 
 func TestUrlFromReference_EmptyPath(t *testing.T) {

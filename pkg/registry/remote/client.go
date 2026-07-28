@@ -193,7 +193,7 @@ func (c Client) mountDescriptor(ctx context.Context, desc ocispecv1.Descriptor, 
 	switch desc.MediaType {
 	case ocispecv1.MediaTypeImageIndex, images.MediaTypeDockerSchema2ManifestList:
 		var index ocispecv1.Index
-		if err := c.fetchJson(ctx, desc, &index); err != nil {
+		if err := c.fetchJson(ctx, desc, from, &index); err != nil {
 			return err
 		}
 		for _, manifest := range index.Manifests {
@@ -231,7 +231,7 @@ func (c Client) mountDescriptor(ctx context.Context, desc ocispecv1.Descriptor, 
 
 func (c Client) mountManifest(ctx context.Context, desc ocispecv1.Descriptor, from string) error {
 	var manifest ocispecv1.Manifest
-	if err := c.fetchJson(ctx, desc, &manifest); err != nil {
+	if err := c.fetchJson(ctx, desc, from, &manifest); err != nil {
 		return err
 	}
 
@@ -251,11 +251,13 @@ func (c Client) mountManifest(ctx context.Context, desc ocispecv1.Descriptor, fr
 	return nil
 }
 
-func (c Client) fetchJson(ctx context.Context, desc ocispecv1.Descriptor, v any) error {
-	repoRef := c.ref
-	repoRef.Path = desc.Digest.String()
+// fetchJson decodes the manifest or index desc points at, reading it from the
+// repository named by from — the one being mounted out of, which is not
+// necessarily the client's own repository.
+func (c Client) fetchJson(ctx context.Context, desc ocispecv1.Descriptor, from string, v any) error {
+	ref := reference.Reference{Path: from, Ref: desc.Digest.String()}
 
-	reader, err := c.Fetch(ctx, repoRef)
+	reader, err := c.Fetch(ctx, ref.WithDescriptor(desc))
 	if err != nil {
 		return err
 	}
@@ -290,9 +292,32 @@ func (c Client) FetchReference(ctx context.Context, ref reference.Reference) (oc
 	return desc, resp.Body, nil
 }
 
+// isManifest reports whether mt names a manifest or an index. A registry keeps
+// those in a namespace of their own: they are readable at /manifests/<digest>
+// and are *not* served from /blobs/<digest>, however they were uploaded.
+func isManifest(mt string) bool {
+	switch mt {
+	case ocispecv1.MediaTypeImageManifest, ocispecv1.MediaTypeImageIndex,
+		images.MediaTypeDockerSchema2Manifest, images.MediaTypeDockerSchema2ManifestList:
+		return true
+	}
+	return false
+}
+
+// Fetch returns the content addressed by ref, reading it from whichever endpoint
+// holds it. Nothing in a digest says whether it names a manifest or a blob, so
+// the caller has to attach the descriptor with Reference.WithDescriptor when it
+// is asking for a manifest; without one, Fetch can only assume a blob.
 func (c Client) Fetch(ctx context.Context, ref reference.Reference) (io.ReadCloser, error) {
 	repoUrl := c.ref.Merge(ref).URL(c.plainHttp)
-	resp, err := c.client.Get(ctx, repoUrl.Blobs())
+
+	url, opts := repoUrl.Blobs(), []packerhttp.RequestOption(nil)
+	if desc := ref.Descriptor(); isManifest(desc.MediaType) {
+		url = repoUrl.Manifests()
+		opts = append(opts, packerhttp.WithAccept(desc.MediaType))
+	}
+
+	resp, err := c.client.Get(ctx, url, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -361,12 +386,7 @@ func (c Client) Push(ctx context.Context, desc ocispecv1.Descriptor, r io.Reader
 }
 
 func (c Client) SetTag(ctx context.Context, desc ocispecv1.Descriptor) error {
-	switch desc.MediaType {
-	case ocispecv1.MediaTypeImageManifest,
-		ocispecv1.MediaTypeImageIndex,
-		images.MediaTypeDockerSchema2Manifest,
-		images.MediaTypeDockerSchema2ManifestList:
-	default:
+	if !isManifest(desc.MediaType) {
 		return fmt.Errorf("unsupported media type: %s", desc.MediaType)
 	}
 

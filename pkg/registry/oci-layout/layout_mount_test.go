@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/arenadata/oci-packer/pkg/registry"
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
 	"github.com/containerd/platforms"
 	"github.com/opencontainers/go-digest"
@@ -71,7 +72,12 @@ func makeTar(t *testing.T, name, content string) []byte {
 	return buf.Bytes()
 }
 
-// pushBlob pushes raw bytes and returns its descriptor.
+// pushBlob makes sure the layout holds these bytes and returns their descriptor.
+//
+// Pushing content the layout already has is not a failure: blobs are addressed
+// by digest, so two fixtures that happen to build the same bytes — two manifests
+// sharing one image config, say — describe the same blob, and the second push is
+// a no-op the layout reports as ErrAlreadyExists.
 func pushBlob(t *testing.T, l *Layout, data []byte, mt string) ocispecv1.Descriptor {
 	t.Helper()
 	desc := ocispecv1.Descriptor{
@@ -79,7 +85,7 @@ func pushBlob(t *testing.T, l *Layout, data []byte, mt string) ocispecv1.Descrip
 		Digest:    digest.FromBytes(data),
 		Size:      int64(len(data)),
 	}
-	if err := l.Push(context.Background(), desc, bytes.NewReader(data)); err != nil {
+	if err := l.Push(context.Background(), desc, bytes.NewReader(data)); err != nil && !registry.IsAlreadyExists(err) {
 		t.Fatalf("Push blob: %v", err)
 	}
 	return desc

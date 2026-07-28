@@ -246,11 +246,20 @@ oci-packer copy \
 oci-packer copy --platform linux/arm64 \
   cr://source-registry.example.com/image:tag \
   oci://target/directory:image:tag
+
+# Копировать 16 слоёв одновременно (по умолчанию 4)
+oci-packer copy -j 16 \
+  cr://source-registry.example.com/image:tag \
+  oci://target/directory:image:tag
 ```
 
 При `--platform` из OCI Index выбирается манифест нужной платформы, и в назначение
 копируется одноплатформенный образ. Формат — `ОС/архитектура[/вариант]`, напр.
 `linux/amd64`, `linux/arm64`, `linux/arm/v7`.
+
+Слои копируются параллельно; `-j`/`--parallel` задаёт, сколько блобов передаётся
+одновременно. `-j 1` возвращает последовательное копирование. Слой, на который
+ссылаются несколько манифестов индекса, передаётся один раз.
 
 ### Режим прокси
 
@@ -562,11 +571,20 @@ oci-packer copy \
 oci-packer copy --platform linux/arm64 \
   cr://source-registry.example.com/image:tag \
   oci://target/directory:image:tag
+
+# Copy 16 layers at a time (the default is 4)
+oci-packer copy -j 16 \
+  cr://source-registry.example.com/image:tag \
+  oci://target/directory:image:tag
 ```
 
 With `--platform`, the manifest for the requested platform is selected from an OCI Index and a
 single-platform image is copied to the destination. The format is `os/arch[/variant]`, e.g.
 `linux/amd64`, `linux/arm64`, `linux/arm/v7`.
+
+Layers are copied in parallel; `-j`/`--parallel` sets how many blobs are transferred at a time.
+`-j 1` restores sequential copying. A layer shared by several manifests of an index is transferred
+once.
 
 ### Proxy mode
 

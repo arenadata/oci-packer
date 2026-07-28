@@ -319,7 +319,7 @@ func (l Layout) Push(ctx context.Context, desc ocispecv1.Descriptor, r io.Reader
 
 // unpackLayer decompresses a layer per its media type and extracts it into a
 // directory under the blobs path (unpack mode only).
-func (l Layout) unpackLayer(desc ocispecv1.Descriptor, r io.Reader) error {
+func (l Layout) unpackLayer(desc ocispecv1.Descriptor, r io.Reader) (err error) {
 	switch desc.MediaType {
 	case ocispecv1.MediaTypeImageLayerGzip, images.MediaTypeDockerSchema2LayerGzip:
 		gz, err := gzip.NewReader(r)
@@ -339,14 +339,30 @@ func (l Layout) unpackLayer(desc ocispecv1.Descriptor, r io.Reader) error {
 	}
 
 	destDir := l.getBlobPath(desc.Digest)
+	// exists() accepts any directory here as a finished layer, so a partial
+	// extraction — an aborted copy, a sibling layer failing and cancelling this
+	// one — must not survive to be mistaken for the real thing next time.
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(destDir)
+		}
+	}()
+
+	// Create the layer directory ourselves. Left to archive.Unpack it is made by
+	// MkdirAllAndChownNew, which chowns it to 0:0 and so fails for an
+	// unprivileged user even when every file in the layer belongs to them.
+	if err = os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("failed to create layer directory: %w", err)
+	}
+
 	return archive.Unpack(r, destDir, &archive.TarOptions{WhiteoutFormat: -1})
 }
 
-func (l Layout) writeBlob(desc ocispecv1.Descriptor, r io.Reader) error {
+func (l Layout) writeBlob(desc ocispecv1.Descriptor, r io.Reader) (err error) {
 	log.WithField("digest", desc.Digest).Debug("writing blob")
 
 	blobDir := l.getBlobDirectory(desc.Digest)
-	if err := os.MkdirAll(blobDir, 0755); err != nil {
+	if err = os.MkdirAll(blobDir, 0755); err != nil {
 		return fmt.Errorf("failed to create blob directory: %w", err)
 	}
 
@@ -355,11 +371,20 @@ func (l Layout) writeBlob(desc ocispecv1.Descriptor, r io.Reader) error {
 	if err != nil {
 		return fmt.Errorf("failed to create blob file '%s': %w", desc.Digest, err)
 	}
+
+	// Drop the truncated remains of a failed write. Both defers are registered
+	// after the file exists, and run last-first, so the handle is closed before
+	// the file goes away.
+	defer func() {
+		if err != nil {
+			_ = os.Remove(blobPath)
+		}
+	}()
 	defer func() { _ = file.Close() }()
 
 	// Write blob content and verify digest
 	digester := digest.Canonical.Digester()
-	if _, err := io.Copy(io.MultiWriter(file, digester.Hash()), r); err != nil {
+	if _, err = io.Copy(io.MultiWriter(file, digester.Hash()), r); err != nil {
 		return fmt.Errorf("failed to write blob: %w", err)
 	}
 
