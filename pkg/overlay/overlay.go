@@ -37,6 +37,14 @@ const (
 type MountOptions struct {
 	LowerDirs []string // bottom-to-top, as recorded in the manifest
 	Target    string
+	// Flags are per-mount VFS flags (MS_NOSUID, MS_NODEV, …) OR'd into the mount syscall.
+	//
+	// They belong here rather than in a follow-up remount because the kernel applies them only
+	// on the call that creates the mount: anything added afterwards leaves a window in which the
+	// mount is live without them. For image content that window is a local privilege-escalation
+	// race — a setuid binary inside a tenant's layer is executable until the second syscall
+	// lands.
+	Flags uintptr
 }
 
 // BindOptions describes a bind mount of a host directory onto the target tree.
@@ -88,8 +96,8 @@ func EnsureWithin(root, target string) error {
 	probe := filepath.Clean(target)
 	suffix := ""
 	for {
-		if real, err := filepath.EvalSymlinks(probe); err == nil {
-			full := filepath.Join(real, suffix)
+		if realPath, err := filepath.EvalSymlinks(probe); err == nil {
+			full := filepath.Join(realPath, suffix)
 			if full != realRoot && !strings.HasPrefix(full, realRoot+string(os.PathSeparator)) {
 				return fmt.Errorf("target %q resolves to %q, outside overlay root %q", target, full, realRoot)
 			}

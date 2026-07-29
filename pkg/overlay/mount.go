@@ -22,36 +22,39 @@ import (
 	"syscall"
 )
 
-// Mount mounts the lower layers read-only at opts.Target. With two or more layers it
-// uses overlayfs; a single layer is mounted as a read-only bind — overlayfs rejects one
-// lowerdir with no upperdir ("at least 2 lowerdir are needed while upperdir nonexistent"),
-// and a lone read-only layer is exactly a read-only view of that directory. Single-layer
-// images (busybox, alpine, most minimal bases) take this path.
+// emptyLowerSuffix names the empty directory a single-layer mount uses as its bottom layer.
+const emptyLowerSuffix = ".empty-lower"
+
+// Mount mounts the lower layers read-only at opts.Target, always as overlayfs, with opts.Flags
+// applied by the same syscall that creates the mount.
+//
+// A single layer gets an EMPTY directory as a second, bottom lower rather than being bind-mounted.
+// overlayfs does reject one lowerdir with no upperdir ("at least 2 lowerdir are needed while
+// upperdir nonexistent"), which is why the bind existed — but a bind cannot carry per-mount flags:
+// the kernel ignores MS_NOSUID/MS_NODEV on the call that creates a bind and honours them only on a
+// following MS_REMOUNT|MS_BIND, so the mount is briefly live without them. For image content that
+// window is a local privilege-escalation race. An empty bottom layer costs one directory and makes
+// both paths a single, atomic mount. Single-layer images (busybox, alpine, most minimal bases) take
+// this path, so it is the common case, not an edge one.
 func Mount(opts MountOptions) error {
-	if len(opts.LowerDirs) == 1 {
-		if err := os.MkdirAll(opts.Target, 0755); err != nil {
+	lowers := opts.LowerDirs
+	if len(lowers) == 1 {
+		empty := opts.Target + emptyLowerSuffix
+		if err := os.MkdirAll(empty, 0755); err != nil {
 			return err
 		}
-		if err := syscall.Mount(opts.LowerDirs[0], opts.Target, "", syscall.MS_BIND, ""); err != nil {
-			return err
-		}
-		// A plain bind inherits the source's writability; a second bind+remount makes the
-		// mount point read-only (the atomic-RO remount idiom, portable across kernels).
-		if err := syscall.Mount("", opts.Target, "", syscall.MS_BIND|syscall.MS_REMOUNT|syscall.MS_RDONLY, ""); err != nil {
-			_ = syscall.Unmount(opts.Target, syscall.MNT_DETACH)
-			return err
-		}
-		return nil
+		// Bottom-to-top: the empty layer is the lowest, so the real layer wins every path.
+		lowers = append([]string{empty}, lowers...)
 	}
 
-	data, err := overlayOptions(opts.LowerDirs) // rejects zero layers; reverses to overlay order
+	data, err := overlayOptions(lowers) // rejects zero layers; reverses to overlay order
 	if err != nil {
 		return err
 	}
 	if err = os.MkdirAll(opts.Target, 0755); err != nil {
 		return err
 	}
-	return syscall.Mount("overlay", opts.Target, "overlay", syscall.MS_RDONLY, data)
+	return syscall.Mount("overlay", opts.Target, "overlay", syscall.MS_RDONLY|opts.Flags, data)
 }
 
 // BindMount bind-mounts opts.Source onto opts.Target.
@@ -80,5 +83,11 @@ func Unmount(target string, lazy bool) error {
 	if lazy {
 		flags = syscall.MNT_DETACH
 	}
-	return syscall.Unmount(target, flags)
+	if err := syscall.Unmount(target, flags); err != nil {
+		return err
+	}
+	// Reclaim the empty bottom layer a single-layer mount created. It is only ever empty, so
+	// removing it can lose nothing, and it is absent for a multi-layer mount.
+	_ = os.Remove(target + emptyLowerSuffix)
+	return nil
 }
