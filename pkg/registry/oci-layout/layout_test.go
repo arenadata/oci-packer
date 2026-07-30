@@ -1039,3 +1039,33 @@ func TestLayout_WithSpecialCharactersInPath(t *testing.T) {
 		t.Error("New() returned nil for special path")
 	}
 }
+
+func TestTarOptions_RootPreservesOwnership(t *testing.T) {
+	opts := tarOptions(0)
+
+	if opts.NoLchown {
+		t.Error("tarOptions(0): NoLchown set — root must restore tar ownership")
+	}
+	if opts.InUserNS {
+		t.Error("tarOptions(0): InUserNS set — root must create device nodes, not skip them")
+	}
+	if opts.WhiteoutFormat != -1 {
+		t.Errorf("tarOptions(0): WhiteoutFormat = %d, want -1", opts.WhiteoutFormat)
+	}
+}
+
+func TestTarOptions_UnprivilegedFlattensOwnership(t *testing.T) {
+	for _, euid := range []int{1, 1000, 65534} {
+		opts := tarOptions(euid)
+
+		if !opts.NoLchown {
+			t.Errorf("tarOptions(%d): NoLchown unset — an unprivileged unpack would EPERM on the first root-owned entry", euid)
+		}
+		if !opts.InUserNS {
+			t.Errorf("tarOptions(%d): InUserNS unset — an unprivileged unpack would EPERM on the first device node", euid)
+		}
+		if opts.WhiteoutFormat != -1 {
+			t.Errorf("tarOptions(%d): WhiteoutFormat = %d, want -1", euid, opts.WhiteoutFormat)
+		}
+	}
+}

@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/arenadata/oci-packer/internal/logger"
 	"github.com/arenadata/oci-packer/pkg/registry"
@@ -355,7 +356,27 @@ func (l Layout) unpackLayer(desc ocispecv1.Descriptor, r io.Reader) (err error) 
 		return fmt.Errorf("failed to create layer directory: %w", err)
 	}
 
-	return archive.Unpack(r, destDir, &archive.TarOptions{WhiteoutFormat: -1})
+	return archive.Unpack(r, destDir, tarOptions(os.Geteuid()))
+}
+
+var rootlessUnpackOnce sync.Once
+
+// tarOptions returns the extraction options for the given effective uid. Root —
+// real or userns-mapped — restores each entry's owner from its tar header, as
+// before. An unprivileged user holds no CAP_CHOWN or CAP_MKNOD, so restoring
+// ownership would fail with EPERM on the first root-owned entry: instead every
+// entry lands owned by the invoking user, and device nodes are skipped rather
+// than failing on mknod (InUserNS is go-archive's switch for exactly that).
+func tarOptions(euid int) *archive.TarOptions {
+	opts := &archive.TarOptions{WhiteoutFormat: -1}
+	if euid != 0 {
+		opts.NoLchown = true
+		opts.InUserNS = true
+		rootlessUnpackOnce.Do(func() {
+			log.WithField("euid", euid).Warn("unpacking rootless: tar ownership is not restored, all files belong to the invoking user")
+		})
+	}
+	return opts
 }
 
 func (l Layout) writeBlob(desc ocispecv1.Descriptor, r io.Reader) (err error) {
