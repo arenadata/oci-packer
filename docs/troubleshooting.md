@@ -196,4 +196,11 @@ lazily:
 
 ### `operation not permitted` on mount
 
-`mount`/`umount` require root (`CAP_SYS_ADMIN`) and Linux. Run with `sudo` on a Linux host.
+`mount`/`umount` need Linux and real root: the mount goes into the host's mount namespace, and
+that takes `CAP_SYS_ADMIN` there. Run with `sudo` on a Linux host.
+
+An unprivileged user can mount overlayfs since kernel 5.11, but only inside a user namespace of
+their own (`unshare -Urm oci-packer mount …`), where the mount is visible to that namespace
+alone and vanishes when it exits — useful to a runtime that runs its workload in that same
+namespace, not to a command whose job is leaving a mount behind. See
+[mount limitations](mount.md#limitations-and-pitfalls).
