@@ -57,7 +57,7 @@ Docker-образов: конфигурации, шаблоны, бинарны�
 
 ```
 oci-packer/
-├── cmd/                    # CLI-команды (pack, copy, proxy, ...)
+├── cmd/                    # CLI-команды (pack, copy, extract, proxy, ...)
 ├── internal/
 │   └── logger/             # Внутренний логгер
 ├── pkg/
@@ -206,6 +206,22 @@ oci-packer list oci://./layout:example/service:v1
 ```
 
 Подробности — в [docs/list.md](docs/list.md).
+
+### Извлечение артефакта в каталог (`extract`)
+
+Обратная операция к упаковке: из артефакта в layout восстанавливается
+каталог, из которого его можно собрать снова — `pack.yaml` (тип, аннотации,
+элементы), каждый упакованный файл под своим title (внутри каталога, который
+назвал `dir://`-элемент), и, с `--image-config`, конфиг mount'нутого образа
+как `image.json`. Mount'нутый член становится элементом
+`cr://<registry>/<repo>@<digest>`; вложенный артефакт извлекается тоже —
+в соседний каталог, названный по аннотации из `--name-by`:
+
+```bash
+oci-packer extract oci://./layout:packs/adh:2.1.0 ./out \
+  --registry registry.example --name-by io.horchestra.name --image-config
+# ./out/adh/pack.yaml  ./out/adh/schema.json  ./out/kafka/templates/…  ./out/kafka/image.json …
+```
 
 ### Удаление образа из layout (`delete`)
 
@@ -539,6 +555,22 @@ oci-packer list oci://./layout:example/service:v1
 ```
 
 See [docs/list.md](docs/list.md) for details.
+
+### Extract an artifact into a directory (`extract`)
+
+The inverse of packing: from an artifact in a layout, write the directory
+that would rebuild it — `pack.yaml` (type, annotations, items), every packed
+file at its title (under the directory a `dir://` item named), and, with
+`--image-config`, a mounted image's config as `image.json`. A mounted member
+becomes a `cr://<registry>/<repo>@<digest>` item; an artifact mounted among
+the members is extracted as well, into a sibling directory named by the
+annotation `--name-by` points at:
+
+```bash
+oci-packer extract oci://./layout:packs/adh:2.1.0 ./out \
+  --registry registry.example --name-by io.horchestra.name --image-config
+# ./out/adh/pack.yaml  ./out/adh/schema.json  ./out/kafka/templates/…  ./out/kafka/image.json …
+```
 
 ### Delete an image from a layout (`delete`)
 

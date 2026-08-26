@@ -110,9 +110,15 @@ func walkDirHandler(desc Descriptor) ConvertHandler {
 			}
 
 			descriptors = append(descriptors, Descriptor{
-				Annotations: map[string]string{ocispecv1.AnnotationTitle: strings.TrimPrefix(path, from)},
-				From:        reference.FileSchema.String() + path,
-				Platform:    desc.Platform,
+				Annotations: map[string]string{
+					ocispecv1.AnnotationTitle: strings.TrimPrefix(path, from),
+					// The directory the item named, so that what was packed from
+					// `dir://templates/` can be put back under templates/ — the title
+					// alone is relative to that directory and does not remember it.
+					AnnotationDir: strings.TrimSuffix(strings.TrimPrefix(desc.From, reference.DirSchema.String()), "/"),
+				},
+				From:     reference.FileSchema.String() + path,
+				Platform: desc.Platform,
 			})
 
 			return nil

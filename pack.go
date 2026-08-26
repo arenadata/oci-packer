@@ -27,6 +27,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// AnnotationDir marks a layer packed from a dir:// item with the directory
+// the item named, as written in the pack file. extract puts the file back
+// under it.
+const AnnotationDir = "io.arenadata.oci-packer.dir"
+
 type Pack struct {
 	Metadata `json:",inline" yaml:",inline"`
 
