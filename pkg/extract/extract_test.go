@@ -43,7 +43,7 @@ func TestExtract_RoundTripsFilesAndDirectories(t *testing.T) {
 			{From: "dir://templates/", Type: "application/vnd.example.template.v1"},
 		},
 	}
-	desc, err := p.Pack(context.Background(), res)
+	desc, err := packer.Build(context.Background(), p, res)
 	if err != nil {
 		t.Fatal(err)
 	}

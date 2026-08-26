@@ -163,7 +163,7 @@ func TestWithTmpDir(t *testing.T) {
 
 func TestPackPack_FailsValidation(t *testing.T) {
 	p := Pack{Items: []Descriptor{}} // empty items — fails validation
-	_, err := p.Pack(context.Background(), &mockPusher{})
+	_, err := Build(context.Background(), p, &mockPusher{})
 	if err == nil {
 		t.Fatal("Pack() should fail when validation fails")
 	}
@@ -178,7 +178,7 @@ func TestPackPack_ConfigWithOCIItemConflict(t *testing.T) {
 			{From: "oci://registry/image:latest"},
 		},
 	}
-	_, err := p.Pack(context.Background(), &mockPusher{})
+	_, err := Build(context.Background(), p, &mockPusher{})
 	if err == nil {
 		t.Fatal("Pack() should fail when metadata.config is used with oci items")
 	}
@@ -196,7 +196,7 @@ func TestPackPack_ConfigWithPlatformItemConflict(t *testing.T) {
 			{From: "file://data.bin", Platform: "linux/amd64"},
 		},
 	}
-	_, err := p.Pack(context.Background(), &mockPusher{})
+	_, err := Build(context.Background(), p, &mockPusher{})
 	if err == nil {
 		t.Fatal("Pack() should fail when metadata.config is used with platform items")
 	}
@@ -211,7 +211,7 @@ func TestPackPack_ManifestWithSingleFile(t *testing.T) {
 		},
 	}
 	pusher := &mockPusher{}
-	_, err := p.Pack(context.Background(), pusher)
+	_, err := Build(context.Background(), p, pusher)
 	if err != nil {
 		t.Fatalf("Pack() error: %v", err)
 	}
@@ -240,7 +240,7 @@ func TestPackPack_ManifestWithMultipleFiles(t *testing.T) {
 		},
 	}
 	pusher := &mockPusher{}
-	_, err := p.Pack(context.Background(), pusher)
+	_, err := Build(context.Background(), p, pusher)
 	if err != nil {
 		t.Fatalf("Pack() error: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestPackPack_IndexCreatedForPlatformItem(t *testing.T) {
 		},
 	}
 	pusher := &mockPusher{}
-	desc, err := p.Pack(context.Background(), pusher)
+	desc, err := Build(context.Background(), p, pusher)
 	if err != nil {
 		t.Fatalf("Pack() error: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestPackPack_IndexOCIItemIsTheMemberItself(t *testing.T) {
 		},
 	}
 	pusher := &mockPusher{}
-	desc, err := p.Pack(context.Background(), pusher)
+	desc, err := Build(context.Background(), p, pusher)
 	if err != nil {
 		t.Fatalf("Pack() error: %v", err)
 	}
@@ -318,7 +318,7 @@ func TestPackPack_IndexOCIItemIsTheMemberItself(t *testing.T) {
 	withConfig := Pack{Items: []Descriptor{
 		{From: "cr://registry.example/images/app:1.0", Config: &ConfigDescriptor{From: "file://" + f}},
 	}}
-	if _, err := withConfig.Pack(context.Background(), &mockPusher{}); err == nil {
+	if _, err := Build(context.Background(), withConfig, &mockPusher{}); err == nil {
 		t.Fatal("a mounted item carrying a config must be refused")
 	}
 }
@@ -332,7 +332,7 @@ func TestPackPack_ManifestCreatedForPlainItems(t *testing.T) {
 		},
 	}
 	pusher := &mockPusher{}
-	desc, err := p.Pack(context.Background(), pusher)
+	desc, err := Build(context.Background(), p, pusher)
 	if err != nil {
 		t.Fatalf("Pack() error: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestPackPack_AlreadyExistsIsIgnored(t *testing.T) {
 	}
 	// A pusher that always returns AlreadyExists should not cause an error
 	pusher := &mockPusher{alwaysAlreadyExists: true}
-	_, err := p.Pack(context.Background(), pusher)
+	_, err := Build(context.Background(), p, pusher)
 	if err != nil {
 		t.Fatalf("Pack() should tolerate AlreadyExists errors, got: %v", err)
 	}
@@ -431,7 +431,7 @@ func TestPackPack_ContextCancelled(t *testing.T) {
 	cancel() // cancel before Pack is called
 
 	// Must not panic regardless of whether Pack honours ctx.
-	_, _ = p.Pack(ctx, &mockPusher{})
+	_, _ = Build(ctx, p, &mockPusher{})
 }
 
 func TestPackPack_ContextCancelledDuringPush(t *testing.T) {
@@ -442,7 +442,7 @@ func TestPackPack_ContextCancelledDuringPush(t *testing.T) {
 	pusher := &mockCancelPusher{cancel: cancel}
 
 	// Must not panic or deadlock.
-	_, _ = p.Pack(ctx, pusher)
+	_, _ = Build(ctx, p, pusher)
 }
 
 // mockCancelPusher cancels the context on its first Push call. Uploads run

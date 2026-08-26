@@ -23,48 +23,27 @@ import (
 
 	"github.com/arenadata/oci-packer/internal/logger"
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
+	"github.com/arenadata/oci-packer/types"
 	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"gopkg.in/yaml.v3"
+)
+
+// The pack file format lives in the dependency-free module
+// github.com/arenadata/oci-packer/types; these are the same types.
+type (
+	Pack             = types.Pack
+	Metadata         = types.Metadata
+	Descriptor       = types.Descriptor
+	ConfigDescriptor = types.ConfigDescriptor
 )
 
 // AnnotationDir marks a layer packed from a dir:// item with the directory
 // the item named, as written in the pack file. extract puts the file back
 // under it.
-const AnnotationDir = "io.arenadata.oci-packer.dir"
+const AnnotationDir = types.AnnotationDir
 
-type Pack struct {
-	Metadata `json:",inline" yaml:",inline"`
-
-	Type  string       `yaml:"type,omitempty" json:"type,omitempty" jsonschema:"description=Set artifactType"`
-	Items []Descriptor `json:"items" yaml:"items" jsonschema:"minItems=1"`
-}
-
-type Metadata struct {
-	Config *ConfigDescriptor `yaml:"config,omitempty" json:"config,omitempty"`
-
-	Annotations map[string]string `yaml:"annotations,omitempty" json:"annotations,omitempty"`
-}
-
-type Descriptor struct {
-	From   string            `yaml:"from" json:"from"`
-	Type   string            `yaml:"type,omitempty" json:"type,omitempty" jsonschema:"description=Set artifactType"`
-	Config *ConfigDescriptor `yaml:"config,omitempty" json:"config,omitempty"`
-
-	Platform string `yaml:"platform,omitempty" json:"platform,omitempty" jsonschema:"pattern=^([A-Za-z0-9_-]+)(?:\\(([A-Za-z0-9_.-]*)\\))?/([A-Za-z0-9_-]+)$"`
-
-	Annotations map[string]string `yaml:"annotations,omitempty" json:"annotations,omitempty"`
-}
-
-type ConfigDescriptor struct {
-	From string `yaml:"from" json:"from"`
-	Type string `yaml:"type,omitempty" json:"type,omitempty" jsonschema:"description=Set artifactType"`
-
-	Platform string `yaml:"platform,omitempty" json:"platform,omitempty" jsonschema:"pattern=^([A-Za-z0-9_-]+)(?:\\(([A-Za-z0-9_.-]*)\\))?/([A-Za-z0-9_-]+)$"`
-
-	Annotations map[string]string `yaml:"annotations,omitempty" json:"annotations,omitempty"`
-}
-
-func (d Descriptor) FileToOciDescriptor() (ocispecv1.Descriptor, io.ReadCloser, error) {
+// FileToOciDescriptor opens a file:// item as a layer.
+func FileToOciDescriptor(d Descriptor) (ocispecv1.Descriptor, io.ReadCloser, error) {
 	var desc ocispecv1.Descriptor
 	var reader io.ReadCloser
 
@@ -92,7 +71,8 @@ func (d Descriptor) FileToOciDescriptor() (ocispecv1.Descriptor, io.ReadCloser, 
 	return desc, reader, nil
 }
 
-func (p Pack) Validate() error {
+// Validate checks a pack file before anything is pushed.
+func Validate(p Pack) error {
 	log := logger.New("validate")
 	log.Debug("validating pack configuration")
 
@@ -102,7 +82,7 @@ func (p Pack) Validate() error {
 		return err
 	}
 
-	if err := p.validateMetadata(); err != nil {
+	if err := validateMetadata(p); err != nil {
 		log.WithError(err).Error("metadata validation failed")
 		return err
 	}
@@ -120,7 +100,7 @@ func (p Pack) Validate() error {
 			return err
 		}
 
-		if err := item.validateDescriptor(); err != nil {
+		if err := validateDescriptor(item); err != nil {
 			err = fmt.Errorf("item[%d]: %v", i, err)
 			log.WithError(err).Error("Loader", "item descriptor validation failed")
 			return err
@@ -132,7 +112,7 @@ func (p Pack) Validate() error {
 	return nil
 }
 
-func (p Pack) validateMetadata() error {
+func validateMetadata(p Pack) error {
 	if p.Config != nil {
 		if len(p.Config.From) == 0 {
 			return fmt.Errorf("metadata.config: 'from' field is required")
@@ -144,7 +124,7 @@ func (p Pack) validateMetadata() error {
 	return nil
 }
 
-func (d Descriptor) validateDescriptor() error {
+func validateDescriptor(d Descriptor) error {
 	if d.Config != nil {
 		if len(d.Config.From) == 0 {
 			return fmt.Errorf("config: 'from' field is required")
@@ -159,15 +139,6 @@ func (d Descriptor) validateDescriptor() error {
 func isValidSource(from string) bool {
 	return reference.IsFile(from) || reference.IsDir(from) || reference.IsOCI(from) ||
 		reference.IsS3(from) || reference.IsHTTP(from)
-}
-
-func (d ConfigDescriptor) ToDescriptor() Descriptor {
-	return Descriptor{
-		From:        d.From,
-		Type:        d.Type,
-		Platform:    d.Platform,
-		Annotations: d.Annotations,
-	}
 }
 
 func LoadFromFile(path string) (*Pack, error) {

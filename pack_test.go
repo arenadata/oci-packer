@@ -177,7 +177,7 @@ func TestPackValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.pack.Validate()
+			err := Validate(tt.pack)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -326,7 +326,7 @@ func mediaTypeOneOf(s string, candidates []string) bool {
 
 func TestPackValidate_NilItems(t *testing.T) {
 	p := Pack{} // Items field is nil, not just empty
-	err := p.Validate()
+	err := Validate(p)
 	if err == nil {
 		t.Fatal("expected error for nil items, got nil")
 	}
@@ -342,7 +342,7 @@ func TestPackValidate_ItemWithMissingFrom_ReportsIndex(t *testing.T) {
 			{From: ""}, // index 1
 		},
 	}
-	err := p.Validate()
+	err := Validate(p)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -360,7 +360,7 @@ func TestPackValidate_ItemConfigMissingFrom(t *testing.T) {
 			},
 		},
 	}
-	err := p.Validate()
+	err := Validate(p)
 	if err == nil {
 		t.Fatal("expected error for item config with empty 'from'")
 	}
@@ -378,7 +378,7 @@ func TestPackValidate_ItemConfigInvalidSource(t *testing.T) {
 			},
 		},
 	}
-	err := p.Validate()
+	err := Validate(p)
 	if err == nil {
 		t.Fatal("expected error for invalid item config source")
 	}
@@ -401,7 +401,7 @@ func TestPackValidate_ItemConfigValidSource(t *testing.T) {
 					},
 				},
 			}
-			if err := p.Validate(); err != nil {
+			if err := Validate(p); err != nil {
 				t.Errorf("Validate() unexpected error for item.Config.From=%q: %v", src, err)
 			}
 		})
@@ -422,7 +422,7 @@ func TestPackValidate_MetadataConfigValidSources(t *testing.T) {
 				Metadata: Metadata{Config: &ConfigDescriptor{From: src}},
 				Items:    []Descriptor{{From: "file://data.bin"}},
 			}
-			if err := p.Validate(); err != nil {
+			if err := Validate(p); err != nil {
 				t.Errorf("Validate() unexpected error for valid config source %q: %v", src, err)
 			}
 		})
@@ -443,7 +443,7 @@ func TestPackValidate_AllValidSchemasForItems(t *testing.T) {
 	for _, src := range sources {
 		t.Run(src, func(t *testing.T) {
 			p := Pack{Items: []Descriptor{{From: src}}}
-			if err := p.Validate(); err != nil {
+			if err := Validate(p); err != nil {
 				t.Errorf("Validate() unexpected error for %q: %v", src, err)
 			}
 		})
@@ -457,7 +457,7 @@ func TestPackValidate_MultipleItemsFirstInvalid(t *testing.T) {
 			{From: "file://ok.bin"},
 		},
 	}
-	err := p.Validate()
+	err := Validate(p)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -584,7 +584,7 @@ items:
 
 func TestFileToOciDescriptor_NotAFile(t *testing.T) {
 	d := Descriptor{From: "dir://something"}
-	_, _, err := d.FileToOciDescriptor()
+	_, _, err := FileToOciDescriptor(d)
 	if err == nil {
 		t.Fatal("expected error for non-file schema")
 	}
@@ -595,7 +595,7 @@ func TestFileToOciDescriptor_NotAFile(t *testing.T) {
 
 func TestFileToOciDescriptor_FileMissing(t *testing.T) {
 	d := Descriptor{From: "file:///nonexistent/path/file.bin"}
-	_, _, err := d.FileToOciDescriptor()
+	_, _, err := FileToOciDescriptor(d)
 	if err == nil {
 		t.Fatal("expected error for missing file")
 	}
@@ -611,7 +611,7 @@ func TestFileToOciDescriptor_Success(t *testing.T) {
 		Annotations: map[string]string{"key": "val"},
 	}
 
-	desc, rc, err := d.FileToOciDescriptor()
+	desc, rc, err := FileToOciDescriptor(d)
 	if err != nil {
 		t.Fatalf("FileToOciDescriptor() error: %v", err)
 	}
@@ -643,7 +643,7 @@ func TestFileToOciDescriptor_MediaTypeInferredFromExtension(t *testing.T) {
 		t.Run(tt.ext, func(t *testing.T) {
 			path := writeTempFile(t, "layer*"+tt.ext, "data")
 			d := Descriptor{From: "file://" + path}
-			desc, rc, err := d.FileToOciDescriptor()
+			desc, rc, err := FileToOciDescriptor(d)
 			if err != nil {
 				t.Fatalf("FileToOciDescriptor() error: %v", err)
 			}

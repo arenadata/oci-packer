@@ -104,7 +104,7 @@ func packRun(cmd *cobra.Command, args []string) {
 		"reference":   ref,
 	}).Debug("starting pack operation")
 
-	desc, err := packManifest.Pack(cmd.Context(), repoClient,
+	desc, err := packer.Build(cmd.Context(), *packManifest, repoClient,
 		packer.WithTmpDir(tmpDir), packer.WithConcurrency(parallel))
 	if err != nil {
 		log.WithError(err).Fatal("pack operation failed")

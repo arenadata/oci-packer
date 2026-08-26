@@ -59,11 +59,12 @@ type builderOptions struct {
 	concurrency int
 }
 
-func (p Pack) Pack(ctx context.Context, resolver registry.Pusher, opts ...BuildOption) (ocispecv1.Descriptor, error) {
+// Build pushes the pack file's artifact through the resolver and returns its descriptor.
+func Build(ctx context.Context, p Pack, resolver registry.Pusher, opts ...BuildOption) (ocispecv1.Descriptor, error) {
 	log := logger.New("builder")
 	log.Debug("configured pack")
 
-	if err := p.Validate(); err != nil {
+	if err := Validate(p); err != nil {
 		log.WithError(err).Error("pack validation failed")
 		return ocispecv1.Descriptor{}, err
 	}
@@ -104,12 +105,11 @@ func (p Pack) Pack(ctx context.Context, resolver registry.Pusher, opts ...BuildO
 		"concurrency":    budget.Limit(),
 	}).Debug("pack configuration validated")
 
-	build := p.makeManifest
+	build := makeManifest
 	if indexExpected {
-		build = p.makeIndex
+		build = makeIndex
 	}
-
-	pusher, err := build(ctx, options, budget)
+	pusher, err := build(ctx, p, options, budget)
 	if err != nil {
 		log.WithError(err).Error("failed to build pack")
 		return ocispecv1.Descriptor{}, budget.Cause(err)
@@ -123,7 +123,7 @@ func (p Pack) Pack(ctx context.Context, resolver registry.Pusher, opts ...BuildO
 	return desc, nil
 }
 
-func (p Pack) makeIndex(ctx context.Context, opts builderOptions, b *parallel.Budget) (Pusher, error) {
+func makeIndex(ctx context.Context, p Pack, opts builderOptions, b *parallel.Budget) (Pusher, error) {
 	log := logger.New("make_index")
 	log.Debug("creating index object")
 
@@ -134,7 +134,7 @@ func (p Pack) makeIndex(ctx context.Context, opts builderOptions, b *parallel.Bu
 		budget:      b,
 	}
 
-	err := p.eachItem(ctx, opts, b, log, func(n int, item Descriptor, descriptors []Descriptor) {
+	err := eachItem(p, ctx, opts, b, log, func(n int, item Descriptor, descriptors []Descriptor) {
 		typ := item.Type
 		if len(typ) == 0 && !reference.IsOCI(item.From) {
 			typ = indexObject.Type // a mounted member keeps its own artifactType
@@ -155,7 +155,7 @@ func (p Pack) makeIndex(ctx context.Context, opts builderOptions, b *parallel.Bu
 	return indexObject, nil
 }
 
-func (p Pack) makeManifest(ctx context.Context, opts builderOptions, b *parallel.Budget) (Pusher, error) {
+func makeManifest(ctx context.Context, p Pack, opts builderOptions, b *parallel.Budget) (Pusher, error) {
 	log := logger.New("make_manifest")
 	log.Debug("creating manifest object")
 
@@ -166,7 +166,7 @@ func (p Pack) makeManifest(ctx context.Context, opts builderOptions, b *parallel
 	// per item and flatten afterwards rather than appending as they arrive: the
 	// layers must end up in pack-file order however the sources came in.
 	perItem := make([][]Descriptor, len(p.Items))
-	err := p.eachItem(ctx, opts, b, log, func(n int, _ Descriptor, descriptors []Descriptor) {
+	err := eachItem(p, ctx, opts, b, log, func(n int, _ Descriptor, descriptors []Descriptor) {
 		perItem[n] = descriptors
 	})
 	if err != nil {
@@ -186,7 +186,7 @@ func (p Pack) makeManifest(ctx context.Context, opts builderOptions, b *parallel
 // walking a dir:// one — and hands each result to collect along with the
 // position it came from. Items are resolved concurrently, so collect is called
 // from several goroutines and must only touch its own slot.
-func (p Pack) eachItem(
+func eachItem(p Pack,
 	ctx context.Context,
 	opts builderOptions,
 	b *parallel.Budget,

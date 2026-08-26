@@ -220,7 +220,7 @@ func (m manifest) pushFile(ctx context.Context, pusher registry.Pusher, d Descri
 		var r io.ReadCloser
 		var err error
 
-		desc, r, err = d.FileToOciDescriptor()
+		desc, r, err = FileToOciDescriptor(d)
 		if err != nil {
 			log.WithError(err).Error("failed to prepare layer descriptor")
 			return err

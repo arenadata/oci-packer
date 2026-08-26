@@ -195,7 +195,7 @@ func TestPack_UploadsInParallel(t *testing.T) {
 	const limit = 4
 
 	pusher := newPackPusher(limit)
-	if _, err := filePack(t, 8).Pack(context.Background(), pusher, WithConcurrency(limit)); err != nil {
+	if _, err := Build(context.Background(), filePack(t, 8), pusher, WithConcurrency(limit)); err != nil {
 		t.Fatalf("Pack: %v", err)
 	}
 
@@ -211,7 +211,7 @@ func TestPack_HonoursConcurrencyLimit(t *testing.T) {
 	const limit = 2
 
 	pusher := newPackPusher(limit)
-	if _, err := filePack(t, 12).Pack(context.Background(), pusher, WithConcurrency(limit)); err != nil {
+	if _, err := Build(context.Background(), filePack(t, 12), pusher, WithConcurrency(limit)); err != nil {
 		t.Fatalf("Pack: %v", err)
 	}
 
@@ -235,7 +235,7 @@ func TestPack_LayerOrderMatchesPackFile(t *testing.T) {
 	// Held open until every upload is in flight, so they all finish at once and
 	// nothing about the order of completion follows the order of the pack file.
 	pusher := newPackPusher(items + 1)
-	desc, err := p.Pack(context.Background(), pusher, WithConcurrency(items+1))
+	desc, err := Build(context.Background(), p, pusher, WithConcurrency(items+1))
 	if err != nil {
 		t.Fatalf("Pack: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestPack_IndexManifestOrderMatchesPackFile(t *testing.T) {
 	}
 
 	pusher := newPackPusher(len(items))
-	desc, err := Pack{Items: items}.Pack(context.Background(), pusher, WithConcurrency(8))
+	desc, err := Build(context.Background(), Pack{Items: items}, pusher, WithConcurrency(8))
 	if err != nil {
 		t.Fatalf("Pack: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestPack_SharedEmptyConfigUploadedOnce(t *testing.T) {
 	}
 
 	pusher := newPackPusher(0)
-	if _, err := (Pack{Items: items}).Pack(context.Background(), pusher, WithConcurrency(8)); err != nil {
+	if _, err := Build(context.Background(), (Pack{Items: items}), pusher, WithConcurrency(8)); err != nil {
 		t.Fatalf("Pack: %v", err)
 	}
 
@@ -313,7 +313,7 @@ func TestPack_IdenticalFilesUploadedOnce(t *testing.T) {
 	}}
 
 	pusher := newPackPusher(0)
-	desc, err := p.Pack(context.Background(), pusher, WithConcurrency(4))
+	desc, err := Build(context.Background(), p, pusher, WithConcurrency(4))
 	if err != nil {
 		t.Fatalf("Pack: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestPack_SequentialAtLimitOne(t *testing.T) {
 	p := filePack(t, 3)
 
 	pusher := newPackPusher(0) // no gate: nothing overlaps, so there is nothing to wait for
-	desc, err := p.Pack(context.Background(), pusher, WithConcurrency(1))
+	desc, err := Build(context.Background(), p, pusher, WithConcurrency(1))
 	if err != nil {
 		t.Fatalf("Pack: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestPack_FailedUploadAbortsPack(t *testing.T) {
 	pusher := newPackPusher(0)
 	pusher.fail = map[digest.Digest]error{failing: boom}
 
-	desc, err := p.Pack(context.Background(), pusher, WithConcurrency(4))
+	desc, err := Build(context.Background(), p, pusher, WithConcurrency(4))
 	if !errors.Is(err, boom) {
 		t.Fatalf("Pack error = %v, want the underlying %v", err, boom)
 	}
@@ -391,7 +391,7 @@ func TestPack_AlreadyExistsIsNotReportedAsTheFailure(t *testing.T) {
 		digest.FromString("content of layer-04.bin"): boom,
 	}
 
-	_, err := p.Pack(context.Background(), pusher, WithConcurrency(4))
+	_, err := Build(context.Background(), p, pusher, WithConcurrency(4))
 	if !errors.Is(err, boom) {
 		t.Errorf("Pack error = %v, want the real failure %v", err, boom)
 	}
@@ -402,7 +402,7 @@ func TestPack_ClampsNonPositiveConcurrency(t *testing.T) {
 	for _, n := range []int{0, -1} {
 		t.Run(fmt.Sprint(n), func(t *testing.T) {
 			pusher := newPackPusher(0)
-			if _, err := filePack(t, 3).Pack(context.Background(), pusher, WithConcurrency(n)); err != nil {
+			if _, err := Build(context.Background(), filePack(t, 3), pusher, WithConcurrency(n)); err != nil {
 				t.Fatalf("Pack: %v", err)
 			}
 			if got := len(pusher.order()); got != 5 {
@@ -452,7 +452,7 @@ func TestPack_DownloadsSourcesInParallel(t *testing.T) {
 	}
 
 	pack := Pack{Items: items}
-	_, err := pack.Pack(context.Background(), newPackPusher(0),
+	_, err := Build(context.Background(), pack, newPackPusher(0),
 		WithTmpDir(t.TempDir()), WithConcurrency(limit))
 	if err != nil {
 		t.Fatalf("Pack: %v", err)

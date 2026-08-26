@@ -26,6 +26,7 @@ require (
 )
 
 require (
+	github.com/arenadata/oci-packer/types v0.0.0
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/log v0.1.0
@@ -51,3 +52,5 @@ require (
 	google.golang.org/grpc v1.80.0 // indirect
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
 )
+
+replace github.com/arenadata/oci-packer/types => ./types
