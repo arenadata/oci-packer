@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"maps"
 	"strings"
 	"time"
 
@@ -103,8 +104,37 @@ type manifest struct {
 	budget *parallel.Budget
 }
 
+// mountOnly reports whether this member of an index is nothing but a remote
+// reference: one cr:// descriptor and no config. Such a member is not built —
+// the reference is mounted and its own descriptor takes the member's place, so
+// an image lands in an index as its manifest and not as a manifest wrapped
+// around it.
+func (m manifest) mountOnly() bool {
+	return len(m.Descriptors) == 1 && reference.IsOCI(m.Descriptors[0].From) && m.Config == nil
+}
+
 func (m manifest) Push(ctx context.Context, pusher registry.Pusher) (ocispecv1.Descriptor, error) {
 	log := logger.New("manifest_push")
+
+	if m.mountOnly() {
+		d := m.Descriptors[0]
+		desc, err := m.mount(ctx, pusher, d)
+		if err != nil {
+			return ocispecv1.Descriptor{}, err
+		}
+		if len(d.Type) > 0 {
+			desc.ArtifactType = d.Type
+		}
+		if len(d.Annotations) > 0 {
+			if desc.Annotations == nil {
+				desc.Annotations = map[string]string{}
+			}
+			maps.Copy(desc.Annotations, d.Annotations)
+		}
+		log.WithFields(map[string]any{"from": d.From, "digest": desc.Digest}).Debug("member mounted as is")
+		return desc, nil
+	}
+
 	log.Debug("building manifest")
 
 	manifest := ocispecv1.Manifest{

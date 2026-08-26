@@ -515,8 +515,15 @@ func TestMountFrom_Success(t *testing.T) {
 			w.Header().Set("Docker-Content-Digest", dgst.String())
 			w.Header().Set("Content-Type", ocispecv1.MediaTypeImageManifest)
 			w.WriteHeader(http.StatusOK)
-		} else if strings.Contains(r.URL.Path, "blobs") && r.Method == http.MethodPost {
+		} else if strings.Contains(r.URL.Path, "blobs") && r.Method == http.MethodPost && r.URL.Query().Get("mount") != "" {
 			// Mount request
+			w.WriteHeader(http.StatusCreated)
+		} else if strings.Contains(r.URL.Path, "blobs/uploads") && r.Method == http.MethodPost {
+			// The manifest's own bytes are pushed after its children are mounted.
+			w.Header().Set("Location", "/v2/library/image/blobs/uploads/session")
+			w.WriteHeader(http.StatusAccepted)
+		} else if strings.Contains(r.URL.Path, "blobs/uploads") && r.Method == http.MethodPut {
+			w.Header().Set("Docker-Content-Digest", r.URL.Query().Get("digest"))
 			w.WriteHeader(http.StatusCreated)
 		} else if r.Method == http.MethodGet {
 			w.WriteHeader(http.StatusOK)
@@ -678,7 +685,7 @@ func TestFetchJson_Success(t *testing.T) {
 	}
 
 	var manifest ocispecv1.Manifest
-	err := c.fetchJson(context.Background(), desc, "other/repo", &manifest)
+	_, err := c.fetchJson(context.Background(), desc, "other/repo", &manifest)
 	require.NoError(t, err)
 	assert.Equal(t, manifestData.SchemaVersion, manifest.SchemaVersion)
 

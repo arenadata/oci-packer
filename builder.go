@@ -18,6 +18,7 @@ package packer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/arenadata/oci-packer/internal/parallel"
 	"github.com/arenadata/oci-packer/pkg/registry"
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
+
 	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 )
@@ -78,6 +80,11 @@ func (p Pack) Pack(ctx context.Context, resolver registry.Pusher, opts ...BuildO
 		msg := "cannot use .metadata.config with oci://|docker:// and/or platform items set. Use items[*].config instead"
 		return ocispecv1.Descriptor{}, errors.New(msg)
 	}
+	for _, item := range p.Items {
+		if reference.IsOCI(item.From) && item.Config != nil {
+			return ocispecv1.Descriptor{}, fmt.Errorf("item %s: a mounted reference is the member itself and cannot carry a config", item.From)
+		}
+	}
 
 	options := builderOptions{concurrency: DefaultConcurrency}
 	for _, opt := range opts {
@@ -129,8 +136,8 @@ func (p Pack) makeIndex(ctx context.Context, opts builderOptions, b *parallel.Bu
 
 	err := p.eachItem(ctx, opts, b, log, func(n int, item Descriptor, descriptors []Descriptor) {
 		typ := item.Type
-		if len(typ) == 0 {
-			typ = indexObject.Type
+		if len(typ) == 0 && !reference.IsOCI(item.From) {
+			typ = indexObject.Type // a mounted member keeps its own artifactType
 		}
 		indexObject.Manifests[n] = manifest{
 			Metadata:    Metadata{Config: item.Config},

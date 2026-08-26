@@ -16,8 +16,10 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -115,10 +117,7 @@ func (c Client) resolve(ctx context.Context, ref reference.Reference) (ocispecv1
 		return ocispecv1.Descriptor{}, reference.Url{}, err
 	}
 
-	contentLength := resp.ContentLength
-	if contentLength < 0 {
-		contentLength = 0
-	}
+	contentLength := max(resp.ContentLength, 0)
 
 	return ocispecv1.Descriptor{
 		MediaType: getManifestMediaType(resp),
@@ -187,54 +186,90 @@ func (c Client) MountFrom(ctx context.Context, ref reference.Reference) (ocispec
 	return desc, nil
 }
 
+// mountDescriptor makes desc available in this client's repository, taking it
+// from the repository named by from. A blob is mounted cross-repo. A manifest or
+// an index is walked first — config, layers, subject, child manifests — and then
+// its own bytes are pushed, so that what the descriptor names exists in the
+// destination and not only what it points at. Mounting the manifest's bytes
+// would be the natural move, but a registry only mounts what the source lists
+// as a layer, and an image pushed by docker lists its manifest nowhere but the
+// manifest store; the bytes are small, so they are fetched and pushed instead.
 func (c Client) mountDescriptor(ctx context.Context, desc ocispecv1.Descriptor, from string) error {
 	log.WithFields(map[string]any{"digest": desc.Digest, "from": from}).Debug("mounting descriptor")
 
 	switch desc.MediaType {
 	case ocispecv1.MediaTypeImageIndex, images.MediaTypeDockerSchema2ManifestList:
 		var index ocispecv1.Index
-		if err := c.fetchJson(ctx, desc, from, &index); err != nil {
+		raw, err := c.fetchJson(ctx, desc, from, &index)
+		if err != nil {
 			return err
 		}
 		for _, manifest := range index.Manifests {
-			if err := c.mountDescriptor(ctx, manifest, from); err != nil {
+			if err = c.mountDescriptor(ctx, manifest, from); err != nil {
 				return err
 			}
 		}
-		return nil
+		return c.pushManifestBytes(ctx, desc, raw)
+
 	case ocispecv1.MediaTypeImageManifest, images.MediaTypeDockerSchema2Manifest:
-		return c.mountManifest(ctx, desc, from)
+		var manifest ocispecv1.Manifest
+		raw, err := c.fetchJson(ctx, desc, from, &manifest)
+		if err != nil {
+			return err
+		}
+		if err = c.mountManifest(ctx, manifest, from); err != nil {
+			return err
+		}
+		return c.pushManifestBytes(ctx, desc, raw)
 	}
 
-	repoRef := c.ref
-	repoRef.Path = from
-	repoRef.Ref = desc.Digest.String()
-
-	repoUrl := repoRef.URL(c.plainHttp)
+	// The mount is asked of THIS client's repository — the destination — naming
+	// the source in `from`. Posting it to the source would mount the blob into
+	// itself: a 201 that changes nothing.
+	repoUrl := c.ref.URL(c.plainHttp)
 	resp, err := c.client.Post(ctx, repoUrl.Mount(desc.Digest, from), nil, packerhttp.WithContentType(desc.MediaType))
 	if err != nil {
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	if resp.StatusCode != http.StatusCreated {
-		return packerhttp.NewUnexpectedStatusErr(resp)
+	switch resp.StatusCode {
+	case http.StatusCreated:
+		actual := resp.Header.Get("Docker-Content-Digest")
+		if len(actual) > 0 && actual != desc.Digest.String() {
+			return fmt.Errorf("got digest %s, expected %s", actual, desc.Digest)
+		}
+		return nil
+	case http.StatusAccepted:
+		// The registry could not mount it (the source does not list it as a
+		// layer) and opened an ordinary upload instead; abandon that session and
+		// copy the bytes through.
+		return c.copyBlob(ctx, desc, from)
 	}
+	return packerhttp.NewUnexpectedStatusErr(resp)
+}
 
-	actual := resp.Header.Get("Docker-Content-Digest")
-	if len(actual) > 0 && actual != repoRef.Ref {
-		return fmt.Errorf("got digest %s, expected %s", actual, repoRef.Ref)
+// copyBlob moves a blob from one repository of the registry into this client's
+// by reading and re-uploading it — the fallback when a cross-repo mount is
+// refused.
+func (c Client) copyBlob(ctx context.Context, desc ocispecv1.Descriptor, from string) error {
+	log.WithFields(map[string]any{"digest": desc.Digest, "from": from}).Debug("mount refused, copying blob")
+
+	reader, err := c.Fetch(ctx, reference.Reference{Path: from, Ref: desc.Digest.String()})
+	if err != nil {
+		return err
 	}
+	defer func() { _ = reader.Close() }()
 
+	if err = c.Push(ctx, desc, reader); err != nil && !errors.Is(err, registry.ErrAlreadyExists) {
+		return err
+	}
 	return nil
 }
 
-func (c Client) mountManifest(ctx context.Context, desc ocispecv1.Descriptor, from string) error {
-	var manifest ocispecv1.Manifest
-	if err := c.fetchJson(ctx, desc, from, &manifest); err != nil {
-		return err
-	}
-
+// mountManifest mounts everything a manifest points at: its config, its layers
+// and its subject. The manifest's own bytes are the caller's to push.
+func (c Client) mountManifest(ctx context.Context, manifest ocispecv1.Manifest, from string) error {
 	if err := c.mountDescriptor(ctx, manifest.Config, from); err != nil {
 		return err
 	}
@@ -251,18 +286,40 @@ func (c Client) mountManifest(ctx context.Context, desc ocispecv1.Descriptor, fr
 	return nil
 }
 
-// fetchJson decodes the manifest or index desc points at, reading it from the
-// repository named by from — the one being mounted out of, which is not
-// necessarily the client's own repository.
-func (c Client) fetchJson(ctx context.Context, desc ocispecv1.Descriptor, from string, v any) error {
+// pushManifestBytes stores a manifest's bytes in this client's repository, the
+// same way a manifest built here is stored; one that is already there is left
+// alone.
+func (c Client) pushManifestBytes(ctx context.Context, desc ocispecv1.Descriptor, raw []byte) error {
+	err := c.Push(ctx, desc, bytes.NewReader(raw))
+	if err != nil && !errors.Is(err, registry.ErrAlreadyExists) {
+		return err
+	}
+	return nil
+}
+
+// fetchRaw returns the bytes of the manifest or index desc points at, reading
+// them from the repository named by from — the one being mounted out of, which
+// is not necessarily the client's own repository.
+func (c Client) fetchRaw(ctx context.Context, desc ocispecv1.Descriptor, from string) ([]byte, error) {
 	ref := reference.Reference{Path: from, Ref: desc.Digest.String()}
 
 	reader, err := c.Fetch(ctx, ref.WithDescriptor(desc))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = reader.Close() }()
-	return json.NewDecoder(reader).Decode(v)
+
+	return io.ReadAll(reader)
+}
+
+// fetchJson decodes the manifest or index desc points at, reading it from the
+// repository named by from.
+func (c Client) fetchJson(ctx context.Context, desc ocispecv1.Descriptor, from string, v any) ([]byte, error) {
+	raw, err := c.fetchRaw(ctx, desc, from)
+	if err != nil {
+		return nil, err
+	}
+	return raw, json.Unmarshal(raw, v)
 }
 
 func (c Client) FetchReference(ctx context.Context, ref reference.Reference) (ocispecv1.Descriptor, io.ReadCloser, error) {

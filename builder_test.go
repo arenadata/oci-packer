@@ -29,6 +29,7 @@ import (
 	"github.com/arenadata/oci-packer/internal/parallel"
 	"github.com/arenadata/oci-packer/pkg/registry"
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
+	"github.com/opencontainers/go-digest"
 	ocispecv1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
@@ -264,6 +265,64 @@ func TestPackPack_IndexCreatedForPlatformItem(t *testing.T) {
 	}
 }
 
+// A cr:// item of an index is the member itself: the index carries the mounted
+// manifest's descriptor — its own artifactType, the item's annotations on top —
+// and no manifest is built around it. A config on such an item is refused.
+func TestPackPack_IndexOCIItemIsTheMemberItself(t *testing.T) {
+	f := writeTestFile(t, "schema.json", "{}")
+	p := Pack{
+		Type: "application/vnd.example.pack",
+		Items: []Descriptor{
+			{From: "cr://registry.example/images/app:1.0", Platform: "linux/amd64",
+				Annotations: map[string]string{"io.example.key": "app"}},
+			{From: "file://" + f, Type: "application/vnd.example.schema"},
+		},
+	}
+	pusher := &mockPusher{}
+	desc, err := p.Pack(context.Background(), pusher)
+	if err != nil {
+		t.Fatalf("Pack() error: %v", err)
+	}
+	if desc.MediaType != ocispecv1.MediaTypeImageIndex {
+		t.Fatalf("expected an index, got %q", desc.MediaType)
+	}
+	if len(pusher.mounted) != 1 || pusher.mounted[0].Path != "images/app" {
+		t.Fatalf("expected one mount of images/app, got %+v", pusher.mounted)
+	}
+	// Exactly one manifest is built — the schema item's; the image is not wrapped.
+	manifests := 0
+	for _, d := range pusher.pushes() {
+		if d.MediaType == ocispecv1.MediaTypeImageManifest {
+			manifests++
+		}
+	}
+	if manifests != 1 {
+		t.Fatalf("expected one built manifest (the schema item), got %d", manifests)
+	}
+
+	// The member keeps the source's artifactType unless the item names one,
+	// and takes the item's annotations.
+	m := manifest{Descriptors: []Descriptor{p.Items[0]}, budget: parallel.NewBudget(1)}
+	member, err := m.Push(context.Background(), pusher)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if member.ArtifactType != "application/vnd.example.source" || member.Annotations["io.example.key"] != "app" {
+		t.Fatalf("unexpected member: %+v", member)
+	}
+	m.Descriptors[0].Type = "application/vnd.example.override"
+	if member, _ = m.Push(context.Background(), pusher); member.ArtifactType != "application/vnd.example.override" {
+		t.Fatalf("the item's type must win: %+v", member)
+	}
+
+	withConfig := Pack{Items: []Descriptor{
+		{From: "cr://registry.example/images/app:1.0", Config: &ConfigDescriptor{From: "file://" + f}},
+	}}
+	if _, err := withConfig.Pack(context.Background(), &mockPusher{}); err == nil {
+		t.Fatal("a mounted item carrying a config must be refused")
+	}
+}
+
 func TestPackPack_ManifestCreatedForPlainItems(t *testing.T) {
 	f := writeTestFile(t, "blob.bin", "data")
 
@@ -310,10 +369,21 @@ type mockPusher struct {
 	mu        sync.Mutex
 	pushCount int
 	pushed    []ocispecv1.Descriptor
+	mounted   []reference.Reference
 }
 
-func (m *mockPusher) MountFrom(context.Context, reference.Reference) (ocispecv1.Descriptor, error) {
-	return ocispecv1.Descriptor{}, nil
+// MountFrom answers the way a registry does: with the descriptor of what was
+// resolved and mounted, carrying its own artifactType.
+func (m *mockPusher) MountFrom(_ context.Context, ref reference.Reference) (ocispecv1.Descriptor, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.mounted = append(m.mounted, ref)
+	return ocispecv1.Descriptor{
+		MediaType:    ocispecv1.MediaTypeImageManifest,
+		ArtifactType: "application/vnd.example.source",
+		Digest:       digest.FromString("mounted:" + ref.Path + ":" + ref.Ref),
+		Size:         42,
+	}, nil
 }
 
 func (m *mockPusher) Push(_ context.Context, desc ocispecv1.Descriptor, r io.Reader) error {
