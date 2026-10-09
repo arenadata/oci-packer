@@ -190,7 +190,7 @@ func (m manifest) Push(ctx context.Context, pusher registry.Pusher) (ocispecv1.D
 func (m manifest) mount(ctx context.Context, pusher registry.Pusher, d Descriptor) (ocispecv1.Descriptor, error) {
 	log := logger.New("mount_repository")
 
-	parsedRef, err := reference.ParseRegistryReference(d.From)
+	parsedRef, err := reference.ParseItem(d.From) // a repository of the destination registry
 	if err != nil {
 		return ocispecv1.Descriptor{}, err
 	}

@@ -123,10 +123,10 @@ items:
   - from: https://example.com/binary.tar.gz
 
   # OCI-образ из реестра (с указанием платформы для мульти-манифеста)
-  - from: oci://registry.example.com/myimage:latest
+  - from: oci://myimage:latest
     platform: linux/amd64
 
-  - from: oci://registry.example.com/myimage:latest
+  - from: oci://myimage:latest
     platform: linux/arm64
 ```
 
@@ -148,10 +148,10 @@ items:
 type: application/vnd.example.multiarch
 
 items:
-  - from: oci://registry.example.com/app:v1.0
+  - from: oci://app:v1.0
     platform: linux(v8)/amd64
 
-  - from: oci://registry.example.com/app:v1.0-arm
+  - from: oci://app:v1.0-arm
     platform: linux/arm64
 ```
 
@@ -214,12 +214,12 @@ oci-packer list oci://./layout:example/service:v1
 элементы), каждый упакованный файл под своим title (внутри каталога, который
 назвал `dir://`-элемент), и, с `--image-config`, конфиг mount'нутого образа
 как `image.json`. Mount'нутый член становится элементом
-`oci://<registry>/<repo>@<digest>`; вложенный артефакт извлекается тоже —
+`oci://<repo>@<digest>` (без реестра — имеется в виду тот, куда пак публикуется); вложенный артефакт извлекается тоже —
 в соседний каталог, названный по аннотации из `--name-by`:
 
 ```bash
 oci-packer extract oci://./layout:packs/adh:2.1.0 ./out \
-  --registry registry.example --name-by io.horchestra.name --image-config
+  --name-by io.horchestra.name --image-config
 # ./out/adh/pack.yaml  ./out/adh/schema.json  ./out/kafka/templates/…  ./out/kafka/image.json …
 ```
 
@@ -472,10 +472,10 @@ items:
   - from: https://example.com/binary.tar.gz
 
   # OCI image from a registry (with platform for multi-manifest)
-  - from: oci://registry.example.com/myimage:latest
+  - from: oci://myimage:latest
     platform: linux/amd64
 
-  - from: oci://registry.example.com/myimage:latest
+  - from: oci://myimage:latest
     platform: linux/arm64
 ```
 
@@ -497,10 +497,10 @@ When `platform` field or `oci://` source is present, an **OCI Index** (multi-man
 type: application/vnd.example.multiarch
 
 items:
-  - from: oci://registry.example.com/app:v1.0
+  - from: oci://app:v1.0
     platform: linux(v8)/amd64
 
-  - from: oci://registry.example.com/app:v1.0-arm
+  - from: oci://app:v1.0-arm
     platform: linux/arm64
 ```
 
@@ -562,13 +562,13 @@ The inverse of packing: from an artifact in a layout, write the directory
 that would rebuild it — `pack.yaml` (type, annotations, items), every packed
 file at its title (under the directory a `dir://` item named), and, with
 `--image-config`, a mounted image's config as `image.json`. A mounted member
-becomes a `oci://<registry>/<repo>@<digest>` item; an artifact mounted among
+becomes an `oci://<repo>@<digest>` item (no registry: the one the pack is pushed to is meant); an artifact mounted among
 the members is extracted as well, into a sibling directory named by the
 annotation `--name-by` points at:
 
 ```bash
 oci-packer extract oci://./layout:packs/adh:2.1.0 ./out \
-  --registry registry.example --name-by io.horchestra.name --image-config
+  --name-by io.horchestra.name --image-config
 # ./out/adh/pack.yaml  ./out/adh/schema.json  ./out/kafka/templates/…  ./out/kafka/image.json …
 ```
 

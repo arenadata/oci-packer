@@ -28,9 +28,6 @@ import (
 )
 
 type Options struct {
-	// Registry is the host the artifact lives in — what oci:// items of the
-	// written pack file point at.
-	Registry string
 	// Repo is the repository the artifact lives in (packs/adh): mounted
 	// members were copied into it, so that is where their digests resolve.
 	Repo string
@@ -209,12 +206,10 @@ func (e *extractor) files(ctx context.Context, man ocispecv1.Manifest, dir strin
 	return items, nil
 }
 
+// remote is the item of a mounted member: its digest in the artifact's
+// repository — an item names no registry, the pack's own is meant.
 func (e *extractor) remote(d digest.Digest) string {
-	host := e.o.Registry
-	if host != "" && !strings.HasSuffix(host, "/") {
-		host += "/"
-	}
-	return "oci://" + host + e.repo + "@" + d.String()
+	return "oci://" + e.repo + "@" + d.String()
 }
 
 // annotationsOf reads the artifact's own annotations and lays the

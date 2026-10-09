@@ -117,11 +117,15 @@ func TestHandleItem_DirHandler(t *testing.T) {
 }
 
 func TestHandleItem_UnsupportedSource(t *testing.T) {
-	// OCI sources (oci://, oci://) are not handled by handleItem — they return an error
-	item := Descriptor{From: "oci://registry/image:latest"}
+	// a scheme no handler takes is an error; an oci:// item is a repository of
+	// the destination and is the member itself
+	item := Descriptor{From: "ftp://host/file"}
+	if got, err := handleItem(context.Background(), Descriptor{From: "oci://images/app:1.0"}, builderOptions{}, parallel.NewBudget(DefaultConcurrency)); err != nil || len(got) != 1 {
+		t.Fatalf("an oci:// item is the member itself: %v %v", got, err)
+	}
 	_, err := handleItem(context.Background(), item, builderOptions{}, parallel.NewBudget(DefaultConcurrency))
 	if err == nil {
-		t.Fatal("expected error for OCI source in handleItem")
+		t.Fatal("expected error for an unsupported source in handleItem")
 	}
 	if !strings.Contains(err.Error(), "unsupported source type") {
 		t.Errorf("unexpected error: %v", err)
@@ -273,7 +277,7 @@ func TestPackPack_IndexOCIItemIsTheMemberItself(t *testing.T) {
 	p := Pack{
 		Type: "application/vnd.example.pack",
 		Items: []Descriptor{
-			{From: "oci://registry.example/images/app:1.0", Platform: "linux/amd64",
+			{From: "oci://images/app:1.0", Platform: "linux/amd64",
 				Annotations: map[string]string{"io.example.key": "app"}},
 			{From: "file://" + f, Type: "application/vnd.example.schema"},
 		},
@@ -316,7 +320,7 @@ func TestPackPack_IndexOCIItemIsTheMemberItself(t *testing.T) {
 	}
 
 	withConfig := Pack{Items: []Descriptor{
-		{From: "oci://registry.example/images/app:1.0", Config: &ConfigDescriptor{From: "file://" + f}},
+		{From: "oci://images/app:1.0", Config: &ConfigDescriptor{From: "file://" + f}},
 	}}
 	if _, err := Build(context.Background(), withConfig, &mockPusher{}); err == nil {
 		t.Fatal("a mounted item carrying a config must be refused")

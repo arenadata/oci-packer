@@ -131,7 +131,7 @@ func TestExtract_MountedMembersBecomeReferences(t *testing.T) {
 
 	out := filepath.Join(work, "out")
 	dir, err := Extract(ctx, res, reference.Reference{Ref: "packs/demo:1.0"}, out,
-		Options{Registry: "registry.example", Repo: "packs/demo", NameBy: "io.example.name", ImageConfig: true})
+		Options{Repo: "packs/demo", NameBy: "io.example.name", ImageConfig: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,12 +141,12 @@ func TestExtract_MountedMembersBecomeReferences(t *testing.T) {
 	raw, _ := os.ReadFile(filepath.Join(out, "demo", "pack.yaml"))
 	var pf packer.Pack
 	yaml.Unmarshal(raw, &pf)
-	if len(pf.Items) != 2 || pf.Items[0].From != "file://schema.json" || pf.Items[1].From != "oci://registry.example/packs/demo@"+comp.Digest.String() {
+	if len(pf.Items) != 2 || pf.Items[0].From != "file://schema.json" || pf.Items[1].From != "oci://packs/demo@"+comp.Digest.String() {
 		t.Errorf("pack items: %+v", pf.Items)
 	}
 	raw, _ = os.ReadFile(filepath.Join(out, "alpine", "pack.yaml"))
 	yaml.Unmarshal(raw, &pf)
-	if len(pf.Items) != 2 || pf.Items[0].From != "oci://registry.example/packs/demo@"+img.Digest.String() || pf.Items[0].Platform != "linux/arm64" ||
+	if len(pf.Items) != 2 || pf.Items[0].From != "oci://packs/demo@"+img.Digest.String() || pf.Items[0].Platform != "linux/arm64" ||
 		pf.Items[1].From != "file://schema.json" || pf.Items[1].Type != "application/vnd.example.schema.v1+json" {
 		t.Errorf("component items: %+v", pf.Items)
 	}

@@ -92,7 +92,7 @@ func TestPackValidation(t *testing.T) {
 			pack: Pack{
 				Items: []Descriptor{
 					{
-						From: "oci://example.com/image:latest",
+						From: "oci://images/image:latest",
 						Type: "application/vnd.oci.image.manifest.v1+json",
 					},
 				},
@@ -100,7 +100,7 @@ func TestPackValidation(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "valid OCI Layout source",
+			name: "an OCI layout item is refused: the image is loaded into the registry",
 			pack: Pack{
 				Items: []Descriptor{
 					{
@@ -109,7 +109,7 @@ func TestPackValidation(t *testing.T) {
 					},
 				},
 			},
-			wantErr: false,
+			wantErr: true,
 		},
 		{
 			name: "valid HTTP source",

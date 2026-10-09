@@ -30,5 +30,7 @@ Documentation hub for the `oci-packer` CLI. Start at the
   first `/`) decides: `:<port>` — a registry; `:` followed by anything else — a layout (`layout-dir:my/image`); a dot,
   or `localhost` — a registry; anything else — a layout. A relative layout whose first segment looks like a host
   (`my.layouts/…`) is written with `./` in front. `cr://` is gone.
+- **In a pack file an `oci://` item names no registry**: `oci://<repo>[:<tag>|@<digest>]` is a repository
+  of the registry the pack is pushed to, the image loaded there beforehand — see [pack.md](pack.md).
 - **Global flags** (inherited by every command): `-v/--verbose`, `-l/--login`, `-p/--password`,
   `--plain-http`, `--insecure` (`--plain-http` and `--insecure` are mutually exclusive).

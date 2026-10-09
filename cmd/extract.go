@@ -19,18 +19,18 @@ packing: pack.yaml with the artifact's type, annotations and items, every packed
 file at its title (under the directory a dir:// item named), and a mounted
 image's config as image.json when --image-config is set.
 
-A mounted member becomes a oci://<registry>/<repo>@<digest> item; an artifact
+A mounted member becomes an oci://<repo>@<digest> item — no registry: the one
+the pack is pushed to is meant; an artifact
 mounted among the members is extracted too, into a sibling directory named by
 the --name-by annotation, so a pack of artifacts comes out as one flat tree:
 
-  oci-packer extract oci://./layout:packs/adh:2.1.0 ./out --registry registry.example --name-by io.horchestra.name --image-config
+  oci-packer extract oci://./layout:packs/adh:2.1.0 ./out --name-by io.horchestra.name --image-config
   ./out/adh/pack.yaml  ./out/adh/schema.json  ./out/kafka/pack.yaml  ./out/kafka/templates/…  ./out/kafka/image.json …`,
 	Args: cobra.ExactArgs(2),
 	Run:  extractCmdRun,
 }
 
 func init() {
-	extractCmd.Flags().String("registry", "", "Registry host the oci:// items of the written pack files point at")
 	extractCmd.Flags().String("name-by", "", "Annotation that names an artifact's directory (default org.opencontainers.image.title)")
 	extractCmd.Flags().Bool("image-config", false, "Write a mounted image's config as image.json")
 	rootCmd.AddCommand(extractCmd)
@@ -46,7 +46,6 @@ func extractCmdRun(cmd *cobra.Command, args []string) {
 	if err != nil {
 		log.WithError(err).Fatal("failed to parse reference")
 	}
-	registryHost, _ := cmd.Flags().GetString("registry")
 	nameBy, _ := cmd.Flags().GetString("name-by")
 	imageConfig, _ := cmd.Flags().GetBool("image-config")
 	// In an oci:// reference the path is the layout directory and Ref is
@@ -56,7 +55,7 @@ func extractCmdRun(cmd *cobra.Command, args []string) {
 		repo = repo[:i]
 	}
 	dir, err := extract.Extract(cmd.Context(), l, reference.Reference{Ref: parsedRef.Ref}, args[1],
-		extract.Options{Registry: registryHost, Repo: repo, NameBy: nameBy, ImageConfig: imageConfig})
+		extract.Options{Repo: repo, NameBy: nameBy, ImageConfig: imageConfig})
 	if err != nil {
 		log.WithError(err).Fatal("extract failed")
 	}

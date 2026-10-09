@@ -173,7 +173,13 @@ func (c Client) Exists(ctx context.Context, ref reference.Reference) (bool, erro
 	return true, nil
 }
 
+// MountFrom makes what ref names available in this client's repository, by a
+// cross-repository mount within this registry. A reference to another
+// registry is refused: the mount would look its repository up here.
 func (c Client) MountFrom(ctx context.Context, ref reference.Reference) (ocispecv1.Descriptor, error) {
+	if len(ref.Host) > 0 && ref.Host != c.ref.Host {
+		return ocispecv1.Descriptor{}, fmt.Errorf("mount from %s: another registry than %s — load the image into %s first", ref, c.ref.Host, c.ref.Host)
+	}
 	desc, repoUrl, err := c.resolve(ctx, ref)
 	if err != nil {
 		return ocispecv1.Descriptor{}, err

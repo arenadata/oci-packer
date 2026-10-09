@@ -17,6 +17,7 @@ package reference
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/opencontainers/go-digest"
@@ -43,6 +44,37 @@ func Parse(s string) (Reference, error) {
 	}
 
 	return parse(!isLayout(imagePathWithRef), imagePathWithRef)
+}
+
+// ParseItem reads a pack file's oci:// item: oci://<repo>[:<tag>|@<digest>],
+// a repository of the registry the pack is pushed to. The image is loaded
+// there beforehand, and the registry is the pack's own — an item names no
+// host, which also keeps a pack valid in any registry it is copied to; nor
+// a local layout, which a registry cannot mount from.
+func ParseItem(s string) (Reference, error) {
+	rest, ok := strings.CutPrefix(s, OciScheme.String())
+	if !ok || len(rest) == 0 {
+		return Reference{}, ErrInvalid
+	}
+	layout := fmt.Errorf("%s: a local OCI layout — load the image into the registry the pack is pushed to first (oci-packer copy), and name its repository: oci://<repo>:<tag>", s)
+	host := fmt.Errorf("%s: an item names no registry — the image is in the registry the pack is pushed to: oci://<repo>:<tag>", s)
+	if strings.HasPrefix(rest, "/") || strings.HasPrefix(rest, ".") || strings.HasPrefix(rest, "~") {
+		return Reference{}, layout
+	}
+	first, _, hasSlash := strings.Cut(rest, "/")
+	if c := strings.IndexByte(first, ':'); c >= 0 && hasSlash {
+		if isPort(first[c+1:]) {
+			return Reference{}, host
+		}
+		return Reference{}, layout
+	}
+	if hasSlash && (strings.Contains(first, ".") || first == "localhost") {
+		return Reference{}, host
+	}
+	if name, _, _ := strings.Cut(rest, "@"); strings.Count(name, ":") > 1 {
+		return Reference{}, layout // <path>:<repo>:<tag>
+	}
+	return parse(false, rest)
 }
 
 // IsLayout reports whether an oci:// reference is to a local OCI layout

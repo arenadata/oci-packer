@@ -229,7 +229,7 @@ func handleItem(ctx context.Context, item Descriptor, opts builderOptions, b *pa
 	} else if reference.IsDir(item.From) {
 		handlerType = "Directory"
 		handler = walkDirHandler(item)
-	} else if reference.IsRemote(item.From) {
+	} else if reference.IsOCI(item.From) {
 		handlerType = "OCI"
 		handler = ociHandler(item)
 	} else {

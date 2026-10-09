@@ -100,6 +100,14 @@ func Validate(p Pack) error {
 			return err
 		}
 
+		if reference.IsOCI(item.From) {
+			if _, err := reference.ParseItem(item.From); err != nil {
+				err = fmt.Errorf("item[%d]: %w", i, err)
+				log.WithError(err).Error("item validation failed")
+				return err
+			}
+		}
+
 		if err := validateDescriptor(item); err != nil {
 			err = fmt.Errorf("item[%d]: %v", i, err)
 			log.WithError(err).Error("Loader", "item descriptor validation failed")

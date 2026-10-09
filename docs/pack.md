@@ -16,11 +16,25 @@ pack file (YAML) → validate → per-item handler → manifest or index → pus
     file://    → file as a layer
     dir://     → each file in the directory as a layer
     http(s):// → download, then add as a layer
-    oci://      → mount layers from another repository (index mode)
+    oci://     → mount an image from another repository of the same registry (index mode)
 ```
 
 A flat **manifest** is produced unless any item has a `platform` field or a registry
 (`oci://`) source, in which case a multi-platform **index** is produced.
+
+An `oci://` item is `oci://<repo>[:<tag>|@<digest>]` — **no registry**: a repository of the registry the
+pack is pushed to, the image loaded there beforehand (the mount is cross-repository within one registry),
+which keeps a pack valid in any registry it is copied to. An item naming a registry, or a local OCI
+layout, is refused before anything is built — load the image first, then name its repository:
+
+```sh
+oci-packer copy oci://docker.io/library/postgres:18-alpine oci://registry.example.com/images/postgres:18-alpine
+```
+
+```yaml
+items:
+  - from: oci://images/postgres:18-alpine
+```
 
 ## Flags
 
