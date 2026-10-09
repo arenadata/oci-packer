@@ -84,7 +84,7 @@ func TestExtract_RoundTripsFilesAndDirectories(t *testing.T) {
 }
 
 // An index with a mounted image and a mounted artifact: the image becomes a
-// cr:// item (and image.json on request), the artifact a cr:// item and a
+// oci:// item (and image.json on request), the artifact a oci:// item and a
 // sibling directory of its own, named by --name-by.
 func TestExtract_MountedMembersBecomeReferences(t *testing.T) {
 	work := t.TempDir()
@@ -141,12 +141,12 @@ func TestExtract_MountedMembersBecomeReferences(t *testing.T) {
 	raw, _ := os.ReadFile(filepath.Join(out, "demo", "pack.yaml"))
 	var pf packer.Pack
 	yaml.Unmarshal(raw, &pf)
-	if len(pf.Items) != 2 || pf.Items[0].From != "file://schema.json" || pf.Items[1].From != "cr://registry.example/packs/demo@"+comp.Digest.String() {
+	if len(pf.Items) != 2 || pf.Items[0].From != "file://schema.json" || pf.Items[1].From != "oci://registry.example/packs/demo@"+comp.Digest.String() {
 		t.Errorf("pack items: %+v", pf.Items)
 	}
 	raw, _ = os.ReadFile(filepath.Join(out, "alpine", "pack.yaml"))
 	yaml.Unmarshal(raw, &pf)
-	if len(pf.Items) != 2 || pf.Items[0].From != "cr://registry.example/packs/demo@"+img.Digest.String() || pf.Items[0].Platform != "linux/arm64" ||
+	if len(pf.Items) != 2 || pf.Items[0].From != "oci://registry.example/packs/demo@"+img.Digest.String() || pf.Items[0].Platform != "linux/arm64" ||
 		pf.Items[1].From != "file://schema.json" || pf.Items[1].Type != "application/vnd.example.schema.v1+json" {
 		t.Errorf("component items: %+v", pf.Items)
 	}

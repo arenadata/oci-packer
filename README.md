@@ -214,7 +214,7 @@ oci-packer list oci://./layout:example/service:v1
 элементы), каждый упакованный файл под своим title (внутри каталога, который
 назвал `dir://`-элемент), и, с `--image-config`, конфиг mount'нутого образа
 как `image.json`. Mount'нутый член становится элементом
-`cr://<registry>/<repo>@<digest>`; вложенный артефакт извлекается тоже —
+`oci://<registry>/<repo>@<digest>`; вложенный артефакт извлекается тоже —
 в соседний каталог, названный по аннотации из `--name-by`:
 
 ```bash
@@ -263,17 +263,17 @@ oci-packer -f artifact.yaml registry.example.com/myartifact:v1.0 -j 16
 
 ```bash
 oci-packer copy \
-  cr://source-registry.example.com/image:tag \
+  oci://source-registry.example.com/image:tag \
   oci://target/directory:image:tag
 
 # Скопировать только одну платформу из мультиплатформенного образа
 oci-packer copy --platform linux/arm64 \
-  cr://source-registry.example.com/image:tag \
+  oci://source-registry.example.com/image:tag \
   oci://target/directory:image:tag
 
 # Копировать 16 слоёв одновременно (по умолчанию 4)
 oci-packer copy -j 16 \
-  cr://source-registry.example.com/image:tag \
+  oci://source-registry.example.com/image:tag \
   oci://target/directory:image:tag
 ```
 
@@ -288,7 +288,7 @@ oci-packer copy -j 16 \
 ### Режим прокси
 
 ```bash
-oci-packer proxy cr://registry.example.com
+oci-packer proxy oci://registry.example.com
 ```
 
 ### Монтирование слоёв (`mount` / `umount`, только Linux)
@@ -301,7 +301,7 @@ oci-packer proxy cr://registry.example.com
 
 ```bash
 # Скачать образ в OCI Layout с распаковкой слоёв
-oci-packer copy --unpack cr://registry.example.com/example/service:v1 oci://./layout:example/service:v1
+oci-packer copy --unpack oci://registry.example.com/example/service:v1 oci://./layout:example/service:v1
 
 # Смонтировать read-only rootfs образа (нужен root)
 sudo oci-packer mount oci://./layout:example/service:v1 /mnt/app
@@ -562,7 +562,7 @@ The inverse of packing: from an artifact in a layout, write the directory
 that would rebuild it — `pack.yaml` (type, annotations, items), every packed
 file at its title (under the directory a `dir://` item named), and, with
 `--image-config`, a mounted image's config as `image.json`. A mounted member
-becomes a `cr://<registry>/<repo>@<digest>` item; an artifact mounted among
+becomes a `oci://<registry>/<repo>@<digest>` item; an artifact mounted among
 the members is extracted as well, into a sibling directory named by the
 annotation `--name-by` points at:
 
@@ -611,17 +611,17 @@ index), and identical bytes are uploaded once. `-j 1` does everything in order, 
 
 ```bash
 oci-packer copy \
-  cr://source-registry.example.com/image:tag \
+  oci://source-registry.example.com/image:tag \
   oci://target/directory:image:tag
 
 # Copy only a single platform from a multi-platform image
 oci-packer copy --platform linux/arm64 \
-  cr://source-registry.example.com/image:tag \
+  oci://source-registry.example.com/image:tag \
   oci://target/directory:image:tag
 
 # Copy 16 layers at a time (the default is 4)
 oci-packer copy -j 16 \
-  cr://source-registry.example.com/image:tag \
+  oci://source-registry.example.com/image:tag \
   oci://target/directory:image:tag
 ```
 
@@ -636,7 +636,7 @@ once.
 ### Proxy mode
 
 ```bash
-oci-packer proxy cr://registry.example.com
+oci-packer proxy oci://registry.example.com
 ```
 
 ### Mounting layers (`mount` / `umount`, Linux only)
@@ -648,7 +648,7 @@ images, so the reference selects one: `oci://<dir>:<repository>:<tag>`. Writable
 
 ```bash
 # Pull an image into an OCI Layout with unpacked layers
-oci-packer copy --unpack cr://registry.example.com/example/service:v1 oci://./layout:example/service:v1
+oci-packer copy --unpack oci://registry.example.com/example/service:v1 oci://./layout:example/service:v1
 
 # Mount the image's read-only rootfs (requires root)
 sudo oci-packer mount oci://./layout:example/service:v1 /mnt/app

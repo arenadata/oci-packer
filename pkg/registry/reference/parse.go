@@ -38,11 +38,53 @@ func Parse(s string) (Reference, error) {
 		return Reference{}, err
 	}
 
-	if !OciScheme.Eq(scheme) && !RegistryScheme.Eq(scheme) {
+	if !OciScheme.Eq(scheme) {
 		return Reference{}, ErrSchemeUnsupported
 	}
 
-	return parse(scheme, imagePathWithRef)
+	return parse(!isLayout(imagePathWithRef), imagePathWithRef)
+}
+
+// IsLayout reports whether an oci:// reference is to a local OCI layout
+// rather than to a registry.
+func IsLayout(s string) bool {
+	return OciScheme.IsPrefix(s) && isLayout(strings.TrimPrefix(s, OciScheme.String()))
+}
+
+// IsRemote reports whether an oci:// reference is to a registry.
+func IsRemote(s string) bool {
+	return OciScheme.IsPrefix(s) && !isLayout(strings.TrimPrefix(s, OciScheme.String()))
+}
+
+// isLayout tells a layout's <path>:<repo>:<tag> from a registry's
+// <host>[:<port>]/<repo>:<tag> by its form. A path starting with /, . or ~
+// is a layout's. Otherwise the first segment, up to the first /, decides: a
+// colon followed by a port — a registry (localhost:5000); a colon followed
+// by anything else — a layout (layout-dir:my/image); a dot, or localhost —
+// a registry (docker.io, localho.st, 10.0.0.1); anything else — a layout.
+// So a relative layout whose first segment looks like a host is written
+// with ./ in front.
+func isLayout(rest string) bool {
+	if strings.HasPrefix(rest, "/") || strings.HasPrefix(rest, ".") || strings.HasPrefix(rest, "~") {
+		return true
+	}
+	first, _, _ := strings.Cut(rest, "/")
+	if _, after, ok := strings.Cut(first, ":"); ok {
+		return !isPort(after)
+	}
+	return !strings.Contains(first, ".") && first != "localhost"
+}
+
+func isPort(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func splitScheme(s string) (string, string, error) {
@@ -67,14 +109,16 @@ func splitScheme(s string) (string, string, error) {
 	return scheme, imagePathWithRef, nil
 }
 
-func parse(scheme, imagePathWithRef string) (Reference, error) {
+// parse reads what follows oci://: a registry's <host>/<repo>:<tag> when
+// remote, a layout's <path>:<repo>:<tag> otherwise.
+func parse(remote bool, imagePathWithRef string) (Reference, error) {
 	var ref Reference
 
 	if strings.Contains(imagePathWithRef, "//") {
 		return ref, ErrInvalid
 	}
 
-	if RegistryScheme.Eq(scheme) {
+	if remote {
 		idx := strings.IndexByte(imagePathWithRef, '/')
 		if idx == -1 {
 			ref.Path = imagePathWithRef
@@ -87,7 +131,7 @@ func parse(scheme, imagePathWithRef string) (Reference, error) {
 		}
 	}
 
-	ref.Scheme = Schema(scheme)
+	ref.Scheme = OciScheme
 
 	idx := strings.IndexAny(imagePathWithRef, "@:")
 	if idx == -1 {
@@ -111,16 +155,16 @@ func parse(scheme, imagePathWithRef string) (Reference, error) {
 
 func ParseRegistryReference(ref string) (Reference, error) {
 	if len(ref) > 0 && !isDigest(ref) && strings.ContainsAny(ref, "@:") {
-		// [cr://registry.host/[repo/]]image[:tag|@digest]
+		// [oci://registry.host/[repo/]]image[:tag|@digest]
 		var err error
 		var parsedReference Reference
 		if idx := strings.Index(ref, "://"); idx > -1 {
-			if !RegistryScheme.IsPrefix(ref) && !OciScheme.IsPrefix(ref) {
+			if !OciScheme.IsPrefix(ref) {
 				return Reference{}, ErrSchemeUnsupported
 			}
 			parsedReference, err = Parse(ref)
 		} else {
-			parsedReference, err = parse(string(RegistryScheme), ref)
+			parsedReference, err = parse(true, ref)
 		}
 		if err != nil {
 			return Reference{}, err
@@ -158,5 +202,5 @@ func IsS3(from string) bool {
 }
 
 func IsOCI(from string) bool {
-	return RegistryScheme.IsPrefix(from) || OciScheme.IsPrefix(from)
+	return OciScheme.IsPrefix(from)
 }

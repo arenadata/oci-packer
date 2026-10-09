@@ -20,7 +20,15 @@ Documentation hub for the `oci-packer` CLI. Start at the
 
 ## Conventions
 
-- **Registry references** use the `cr://` scheme: `cr://registry.example.com/repo/name:tag`.
-- **OCI layout references** use the `oci://` scheme: `oci://<layout-dir>:<repo>/<name>:tag`.
+- **One scheme, `oci://`, for an image wherever it is**; the form says where:
+  - a **registry**: `oci://<host>[:<port>]/<repo>:<tag>` — `oci://localhost/my/image:1.2.3`,
+    `oci://localho.st/my/image:1.2.3`, `oci://docker.io/library/postgres:18-alpine`, `oci://localhost:5000/app:v1`;
+  - a **local OCI layout**: `oci://<path>:<repo>:<tag>`, the path absolute or relative —
+    `oci:///home/user/layout-dir:my/image:1.2.3`, `oci://layout-dir:my/image:1.2.3`, `oci://./layout-dir:my/image:1.2.3`.
+
+  How the form is read: a path starting with `/`, `.` or `~` is a layout's. Otherwise the first segment (up to the
+  first `/`) decides: `:<port>` — a registry; `:` followed by anything else — a layout (`layout-dir:my/image`); a dot,
+  or `localhost` — a registry; anything else — a layout. A relative layout whose first segment looks like a host
+  (`my.layouts/…`) is written with `./` in front. `cr://` is gone.
 - **Global flags** (inherited by every command): `-v/--verbose`, `-l/--login`, `-p/--password`,
   `--plain-http`, `--insecure` (`--plain-http` and `--insecure` are mutually exclusive).

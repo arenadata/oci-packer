@@ -2,7 +2,7 @@
 // it writes the directory that would rebuild it — pack.yaml, every packed file
 // at its title (under the directory a dir:// item named), and, when asked, the
 // config of a mounted image as image.json. A mounted member — an image, or
-// another artifact — becomes a cr://<registry>/<repo>@<digest> item, and an
+// another artifact — becomes a oci://<registry>/<repo>@<digest> item, and an
 // artifact among them is extracted as well, into a sibling directory of its
 // own, so that a pack of packs comes out as one flat tree of directories.
 package extract
@@ -28,7 +28,7 @@ import (
 )
 
 type Options struct {
-	// Registry is the host the artifact lives in — what cr:// items of the
+	// Registry is the host the artifact lives in — what oci:// items of the
 	// written pack file point at.
 	Registry string
 	// Repo is the repository the artifact lives in (packs/adh): mounted
@@ -134,11 +134,11 @@ func (e *extractor) artifact(ctx context.Context, desc ocispecv1.Descriptor, fal
 }
 
 // member turns one member of an index into pack-file items: a built manifest
-// (empty config) into its files, a mounted image into a cr:// item (plus
-// image.json on request), a mounted index into a cr:// item and an artifact
+// (empty config) into its files, a mounted image into a oci:// item (plus
+// image.json on request), a mounted index into a oci:// item and an artifact
 // of its own.
 func (e *extractor) member(ctx context.Context, m ocispecv1.Descriptor, dir string) ([]packer.Descriptor, error) {
-	mounted := packer.Descriptor{From: e.cr(m.Digest), Platform: formatPlatform(m.Platform), Annotations: strip(m.Annotations)}
+	mounted := packer.Descriptor{From: e.remote(m.Digest), Platform: formatPlatform(m.Platform), Annotations: strip(m.Annotations)}
 	if isIndex(m.MediaType) {
 		if _, err := e.artifact(ctx, m, m.Digest.Encoded()[:12]); err != nil {
 			return nil, err
@@ -209,12 +209,12 @@ func (e *extractor) files(ctx context.Context, man ocispecv1.Manifest, dir strin
 	return items, nil
 }
 
-func (e *extractor) cr(d digest.Digest) string {
+func (e *extractor) remote(d digest.Digest) string {
 	host := e.o.Registry
 	if host != "" && !strings.HasSuffix(host, "/") {
 		host += "/"
 	}
-	return "cr://" + host + e.repo + "@" + d.String()
+	return "oci://" + host + e.repo + "@" + d.String()
 }
 
 // annotationsOf reads the artifact's own annotations and lays the

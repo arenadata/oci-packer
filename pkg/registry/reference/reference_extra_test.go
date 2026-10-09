@@ -102,8 +102,8 @@ func TestIsOCI(t *testing.T) {
 	if !IsOCI("oci://path") {
 		t.Error("IsOCI should be true for oci://")
 	}
-	if !IsOCI("cr://host/image") {
-		t.Error("IsOCI should be true for cr://")
+	if !IsOCI("oci://host/image") {
+		t.Error("IsOCI should be true for oci://")
 	}
 	if IsOCI("file://path") {
 		t.Error("IsOCI should be false for file://")
@@ -116,13 +116,13 @@ func TestIsOCI(t *testing.T) {
 
 func TestReference_String_TagSeparator(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
 	}
 	got := ref.String()
-	if got != "cr://docker.io/library/nginx:latest" {
+	if got != "oci://docker.io/library/nginx:latest" {
 		t.Errorf("String() = %q (unexpected format for tag)", got)
 	}
 }
@@ -130,7 +130,7 @@ func TestReference_String_TagSeparator(t *testing.T) {
 func TestReference_String_DigestSeparator(t *testing.T) {
 	digestRef := "sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b"
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    digestRef,
@@ -163,7 +163,7 @@ func TestReference_String_OciSchemeNoHost(t *testing.T) {
 
 func TestParseRegistryReference_SimpleTag(t *testing.T) {
 	base := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
@@ -183,7 +183,7 @@ func TestParseRegistryReference_SimpleTag(t *testing.T) {
 
 func TestParseRegistryReference_EmptyRefKeepsBase(t *testing.T) {
 	base := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "stable",
@@ -200,12 +200,12 @@ func TestParseRegistryReference_EmptyRefKeepsBase(t *testing.T) {
 
 func TestParseRegistryReference_FullCRRef(t *testing.T) {
 	base := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
 	}
-	parsedRef, err := ParseRegistryReference("cr://docker.io/other/image:v2")
+	parsedRef, err := ParseRegistryReference("oci://docker.io/other/image:v2")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -227,7 +227,7 @@ func TestParseRegistryReference_UnsupportedSchemeInRef(t *testing.T) {
 
 func TestParseRegistryReference_PathOnlyRef(t *testing.T) {
 	base := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "myregistry.io",
 		Path:   "old/path",
 		Ref:    "latest",
@@ -247,7 +247,7 @@ func TestParseRegistryReference_PathOnlyRef(t *testing.T) {
 }
 
 func TestParseRegistryReference_DigestRef(t *testing.T) {
-	base := Reference{Scheme: RegistryScheme, Host: "docker.io", Path: "lib/app", Ref: "latest"}
+	base := Reference{Scheme: OciScheme, Host: "docker.io", Path: "lib/app", Ref: "latest"}
 	dgst := "sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b"
 	parsedRef, err := ParseRegistryReference(dgst)
 	if err != nil {

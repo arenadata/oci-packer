@@ -38,7 +38,7 @@ import (
 )
 
 func TestNew_ValidReference(t *testing.T) {
-	ref, err := New("cr://registry.example.com/library/image:latest")
+	ref, err := New("oci://registry.example.com/library/image:latest")
 	require.NoError(t, err)
 	assert.NotNil(t, ref)
 }
@@ -50,7 +50,7 @@ func TestNew_InvalidReference(t *testing.T) {
 }
 
 func TestNewRegistryClient_ValidReference(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client, err := NewRegistryClient(parsedRef)
 	require.NoError(t, err)
 	assert.NotNil(t, client)
@@ -68,7 +68,7 @@ func TestNewRegistryClient_UnsupportedScheme(t *testing.T) {
 }
 
 func TestNewRegistryClient_WithPlainHttp(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client, err := NewRegistryClient(parsedRef, WithPlainHttp())
 	require.NoError(t, err)
 	assert.NotNil(t, client)
@@ -78,7 +78,7 @@ func TestNewRegistryClient_WithPlainHttp(t *testing.T) {
 }
 
 func TestNewRegistryClient_WithInsecure(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client, err := NewRegistryClient(parsedRef, WithInsecure())
 	require.NoError(t, err)
 
@@ -87,7 +87,7 @@ func TestNewRegistryClient_WithInsecure(t *testing.T) {
 }
 
 func TestNewRegistryClient_WithCreds(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client, err := NewRegistryClient(parsedRef, WithCreds("user", "pass"))
 	require.NoError(t, err)
 
@@ -97,7 +97,7 @@ func TestNewRegistryClient_WithCreds(t *testing.T) {
 }
 
 func TestNewRegistryClient_WithCustomClient(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	customClient := packerhttp.New()
 	client, err := NewRegistryClient(parsedRef, WithClient(customClient))
 	require.NoError(t, err)
@@ -116,8 +116,8 @@ func TestResolve_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Extract hostname and port from http://localhost:port and create cr:// URL
-	refStr := "cr://" + server.URL[7:] + "/library/image:latest"
+	// Extract hostname and port from http://localhost:port and create oci:// URL
+	refStr := "oci://" + server.URL[7:] + "/library/image:latest"
 	ref, _ := reference.Parse(refStr)
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
@@ -136,7 +136,7 @@ func TestResolve_MissingContentDigest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -152,7 +152,7 @@ func TestResolve_NonOKStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -169,7 +169,7 @@ func TestExists_BlobExists(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -185,7 +185,7 @@ func TestExists_BlobNotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -227,7 +227,7 @@ func TestFetchReference_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -251,7 +251,7 @@ func TestFetch_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -267,7 +267,7 @@ func TestFetch_Success(t *testing.T) {
 
 // TestFetch_ManifestUsesManifestsEndpoint pins the endpoint split. A registry
 // stores manifests apart from blobs and answers 404 for a manifest digest under
-// /blobs/, which is what used to break every 'copy cr://... oci://...' at the
+// /blobs/, which is what used to break every 'copy oci://... oci://...' at the
 // very first fetch.
 func TestFetch_ManifestUsesManifestsEndpoint(t *testing.T) {
 	manifestBytes := []byte(`{"schemaVersion":2}`)
@@ -294,7 +294,7 @@ func TestFetch_ManifestUsesManifestsEndpoint(t *testing.T) {
 			}))
 			defer server.Close()
 
-			ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+			ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 			client, _ := NewRegistryClient(ref, WithPlainHttp())
 
 			dgst := digest.FromBytes(manifestBytes)
@@ -324,7 +324,7 @@ func TestFetch_NotFound(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -354,7 +354,7 @@ func TestPush_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -381,7 +381,7 @@ func TestPush_BlobAlreadyExists(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -420,7 +420,7 @@ func TestSetTag_ManifestMediaType(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -435,7 +435,7 @@ func TestSetTag_ManifestMediaType(t *testing.T) {
 }
 
 func TestSetTag_UnsupportedMediaType(t *testing.T) {
-	ref, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	ref, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client, _ := NewRegistryClient(ref)
 	c := client.(*Client)
 
@@ -481,7 +481,7 @@ func TestGetManifestMediaType_PlainTextSchema1(t *testing.T) {
 }
 
 func TestUrlFromReference_ValidReference(t *testing.T) {
-	ref, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	ref, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client, _ := NewRegistryClient(ref)
 	c := client.(*Client)
 
@@ -534,7 +534,7 @@ func TestMountFrom_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -551,7 +551,7 @@ func TestResolveRef_InvalidDigest(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -569,7 +569,7 @@ func TestDockerSchema2ManifestMediaType(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -604,7 +604,7 @@ func TestImageIndex_Resolve(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -615,7 +615,7 @@ func TestImageIndex_Resolve(t *testing.T) {
 }
 
 func TestMultipleOptions_Combined(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	customClient := packerhttp.New()
 
 	client, err := NewRegistryClient(
@@ -645,7 +645,7 @@ func TestResolve_InvalidContentLength(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -674,7 +674,7 @@ func TestFetchJson_Success(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
@@ -694,7 +694,7 @@ func TestFetchJson_Success(t *testing.T) {
 }
 
 func TestUrlFromReference_EmptyPath(t *testing.T) {
-	ref, _ := reference.Parse("cr://registry.example.com/image:latest")
+	ref, _ := reference.Parse("oci://registry.example.com/image:latest")
 	client, _ := NewRegistryClient(ref)
 	c := client.(*Client)
 
@@ -710,7 +710,7 @@ func TestResolveRef_ContextCancellation(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/library/image:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/library/image:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 

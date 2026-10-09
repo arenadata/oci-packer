@@ -28,7 +28,7 @@ Typical use cases:
 ## How it works
 
 ```
-oci-packer copy --unpack cr://registry/example/service:v1 oci://./layout:example/service:v1
+oci-packer copy --unpack oci://registry.example.com/example/service:v1 oci://./layout:example/service:v1
         │
         ▼  image layers are unpacked into blobs/sha256/<hex>/ directories
    ┌─────────────────────────────────────────────────────┐

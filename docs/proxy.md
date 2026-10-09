@@ -4,10 +4,10 @@ Run an HTTP server that exposes OCI artifacts from a registry over plain HTTP, s
 clients (curl, browsers, package tools) can fetch blobs without an OCI client.
 
 ```
-oci-packer proxy [flags] <cr://registry>
+oci-packer proxy [flags] <oci://registry>
 ```
 
-The single argument is the upstream registry reference (`cr://` scheme).
+The single argument is the upstream registry reference (`oci://` scheme).
 
 ## Flags
 
@@ -23,7 +23,7 @@ The single argument is the upstream registry reference (`cr://` scheme).
 ## Example
 
 ```bash
-oci-packer proxy --addr :8080 cr://registry.example.com
+oci-packer proxy --addr :8080 oci://registry.example.com
 ```
 
 > Beta: the request-to-artifact mapping and caching behaviour may change.

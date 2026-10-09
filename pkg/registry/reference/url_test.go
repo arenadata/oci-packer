@@ -29,7 +29,7 @@ import (
 
 func TestReference_URL_HTTPS(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
@@ -48,7 +48,7 @@ func TestReference_URL_HTTPS(t *testing.T) {
 
 func TestReference_URL_HTTP(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "localhost:5000",
 		Path:   "myapp",
 		Ref:    "v1.0",
@@ -74,7 +74,7 @@ func TestReference_URL_DockerIONormalization(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ref := Reference{
-				Scheme: RegistryScheme,
+				Scheme: OciScheme,
 				Host:   tt.input,
 				Path:   "nginx",
 				Ref:    "latest",
@@ -90,7 +90,7 @@ func TestReference_URL_DockerIONormalization(t *testing.T) {
 
 func TestReference_URL_DockerIOLibraryPrefix(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "nginx",
 		Ref:    "latest",
@@ -105,7 +105,7 @@ func TestReference_URL_DockerIOLibraryPrefix(t *testing.T) {
 
 func TestReference_URL_DockerIOPreservesNestedPath(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "myrepo/nginx",
 		Ref:    "latest",
@@ -124,7 +124,7 @@ func TestReference_URL_DockerIOPreservesNestedPath(t *testing.T) {
 
 func TestUrl_Path(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
@@ -140,7 +140,7 @@ func TestUrl_Path(t *testing.T) {
 
 func TestUrl_Path_SingleLevel(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "registry.io",
 		Path:   "myapp",
 		Ref:    "v1",
@@ -160,7 +160,7 @@ func TestUrl_Path_SingleLevel(t *testing.T) {
 
 func TestUrl_Manifests_WithTag(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
@@ -189,7 +189,7 @@ func TestUrl_Manifests_WithTag(t *testing.T) {
 func TestUrl_Manifests_WithDigest(t *testing.T) {
 	dgst := "sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b"
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "registry.example.com",
 		Path:   "team/project",
 		Ref:    dgst,
@@ -213,7 +213,7 @@ func TestUrl_Manifests_WithDigest(t *testing.T) {
 
 func TestUrl_Manifests_LocalRegistry(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "localhost:5000",
 		Path:   "myapp",
 		Ref:    "v1.0",
@@ -241,7 +241,7 @@ func TestUrl_Blobs_WithTag(t *testing.T) {
 	// Blobs() returns the blobs endpoint for the repository; the Ref is appended
 	// as-is (tag or digest). Verify the exact path structure.
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
@@ -266,7 +266,7 @@ func TestUrl_Blobs_WithTag(t *testing.T) {
 func TestUrl_Blobs_WithDigest(t *testing.T) {
 	dgst := "sha256:abc123def456"
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "registry.io",
 		Path:   "app",
 		Ref:    dgst,
@@ -289,7 +289,7 @@ func TestUrl_Blobs_WithDigest(t *testing.T) {
 
 func TestUrl_Uploads(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
@@ -311,7 +311,7 @@ func TestUrl_Uploads(t *testing.T) {
 
 func TestUrl_UploadsUrl(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "localhost:5000",
 		Path:   "myapp",
 		Ref:    "v1",
@@ -335,7 +335,7 @@ func TestUrl_UploadsUrl(t *testing.T) {
 
 func TestUrl_UploadsUrl_PathStructure(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "registry.example.com",
 		Path:   "team/project/app",
 		Ref:    "v2",
@@ -356,7 +356,7 @@ func TestUrl_UploadsUrl_PathStructure(t *testing.T) {
 
 func TestUrl_Mount_BasicValues(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
@@ -391,7 +391,7 @@ func TestUrl_Mount_BasicValues(t *testing.T) {
 
 func TestUrl_Mount_QueryEncoding(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "registry.example.com",
 		Path:   "app",
 		Ref:    "v1",
@@ -425,7 +425,7 @@ func TestUrl_Mount_QueryEncoding(t *testing.T) {
 
 func TestUrl_CompleteFlow(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "registry.example.com:5000",
 		Path:   "team/project/service",
 		Ref:    "v1.2.3",
@@ -467,7 +467,7 @@ func TestUrl_SchemeConsistency(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ref := Reference{
-				Scheme: RegistryScheme,
+				Scheme: OciScheme,
 				Host:   "example.com",
 				Path:   "image",
 				Ref:    "tag",

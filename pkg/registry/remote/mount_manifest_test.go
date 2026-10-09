@@ -60,11 +60,11 @@ func TestMountFrom_PushesManifestBytes(t *testing.T) {
 	}))
 	defer server.Close()
 
-	ref, _ := reference.Parse("cr://" + server.URL[7:] + "/target/repo:latest")
+	ref, _ := reference.Parse("oci://" + server.URL[7:] + "/target/repo:latest")
 	client, _ := NewRegistryClient(ref, WithPlainHttp())
 	c := client.(*Client)
 
-	src, _ := reference.Parse("cr://" + server.URL[7:] + "/source/image:1.0")
+	src, _ := reference.Parse("oci://" + server.URL[7:] + "/source/image:1.0")
 	desc, err := c.MountFrom(context.Background(), src)
 	require.NoError(t, err)
 	require.Equal(t, manifestDigest, desc.Digest)

@@ -29,9 +29,9 @@ func TestParse_Successful(t *testing.T) {
 	}{
 		{
 			name:  "basic host and path",
-			input: "cr://docker.io/library/nginx",
+			input: "oci://docker.io/library/nginx",
 			expectedRef: Reference{
-				Scheme: RegistryScheme,
+				Scheme: OciScheme,
 				Host:   "docker.io",
 				Path:   "library/nginx",
 				Ref:    "latest",
@@ -39,9 +39,9 @@ func TestParse_Successful(t *testing.T) {
 		},
 		{
 			name:  "host, path and tag",
-			input: "cr://docker.io/library/nginx:1.19",
+			input: "oci://docker.io/library/nginx:1.19",
 			expectedRef: Reference{
-				Scheme: RegistryScheme,
+				Scheme: OciScheme,
 				Host:   "docker.io",
 				Path:   "library/nginx",
 				Ref:    "1.19",
@@ -49,9 +49,9 @@ func TestParse_Successful(t *testing.T) {
 		},
 		{
 			name:  "host, path and digest",
-			input: "cr://docker.io/library/nginx@sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
+			input: "oci://docker.io/library/nginx@sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
 			expectedRef: Reference{
-				Scheme: RegistryScheme,
+				Scheme: OciScheme,
 				Host:   "docker.io",
 				Path:   "library/nginx",
 				Ref:    "sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
@@ -59,9 +59,9 @@ func TestParse_Successful(t *testing.T) {
 		},
 		{
 			name:  "simple host and single image name",
-			input: "cr://localhost/myapp",
+			input: "oci://localhost/myapp",
 			expectedRef: Reference{
-				Scheme: RegistryScheme,
+				Scheme: OciScheme,
 				Host:   "localhost",
 				Path:   "myapp",
 				Ref:    "latest",
@@ -69,9 +69,9 @@ func TestParse_Successful(t *testing.T) {
 		},
 		{
 			name:  "host with port and tag",
-			input: "cr://localhost:5000/myapp:v1.0",
+			input: "oci://localhost:5000/myapp:v1.0",
 			expectedRef: Reference{
-				Scheme: RegistryScheme,
+				Scheme: OciScheme,
 				Host:   "localhost:5000",
 				Path:   "myapp",
 				Ref:    "v1.0",
@@ -79,9 +79,9 @@ func TestParse_Successful(t *testing.T) {
 		},
 		{
 			name:  "deeply nested path with tag",
-			input: "cr://registry.example.com/team/project/service:v2",
+			input: "oci://registry.example.com/team/project/service:v2",
 			expectedRef: Reference{
-				Scheme: RegistryScheme,
+				Scheme: OciScheme,
 				Host:   "registry.example.com",
 				Path:   "team/project/service",
 				Ref:    "v2",
@@ -89,9 +89,9 @@ func TestParse_Successful(t *testing.T) {
 		},
 		{
 			name:  "digest with algorithm and colon",
-			input: "cr://docker.io/nginx@sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
+			input: "oci://docker.io/nginx@sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
 			expectedRef: Reference{
-				Scheme: RegistryScheme,
+				Scheme: OciScheme,
 				Host:   "docker.io",
 				Path:   "nginx",
 				Ref:    "sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b",
@@ -99,9 +99,9 @@ func TestParse_Successful(t *testing.T) {
 		},
 		{
 			name:  "image name with dots and hyphens",
-			input: "cr://registry.io/my-app.v2:1.0-alpha",
+			input: "oci://registry.io/my-app.v2:1.0-alpha",
 			expectedRef: Reference{
-				Scheme: RegistryScheme,
+				Scheme: OciScheme,
 				Host:   "registry.io",
 				Path:   "my-app.v2",
 				Ref:    "1.0-alpha",
@@ -109,9 +109,9 @@ func TestParse_Successful(t *testing.T) {
 		},
 		{
 			name:  "numeric tag",
-			input: "cr://docker.io/nginx:123",
+			input: "oci://docker.io/nginx:123",
 			expectedRef: Reference{
-				Scheme: RegistryScheme,
+				Scheme: OciScheme,
 				Host:   "docker.io",
 				Path:   "nginx",
 				Ref:    "123",
@@ -158,12 +158,12 @@ func TestParse_Errors(t *testing.T) {
 	}{
 		{
 			name:          "double slash in path (dummy:// is not in input)",
-			input:         "cr://docker.io//library/nginx",
+			input:         "oci://docker.io//library/nginx",
 			expectedError: ErrInvalid,
 		},
 		{
 			name:          "image with trailing slash before tag",
-			input:         "cr://docker.io/myapp/:latest",
+			input:         "oci://docker.io/myapp/:latest",
 			expectedError: ErrInvalid,
 		},
 		{
@@ -250,7 +250,7 @@ func TestParse_Errors(t *testing.T) {
 func TestParse_ReferenceSeparation(t *testing.T) {
 	// @ takes precedence over : in separating Ref from Image
 	t.Run("digest with colon inside", func(t *testing.T) {
-		ref, err := Parse("cr://docker.io/myapp@sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b")
+		ref, err := Parse("oci://docker.io/myapp@sha256:e58fcf7418d4390dec8e8fb69d88c06ec07039d651fedd3aa72af9972e7d046b")
 		if err != nil {
 			t.Fatalf("Parse() unexpected error: %v", err)
 		}
@@ -263,7 +263,7 @@ func TestParse_ReferenceSeparation(t *testing.T) {
 	})
 
 	t.Run("colon separates tag when no @", func(t *testing.T) {
-		ref, err := Parse("cr://docker.io/myapp:v1.0")
+		ref, err := Parse("oci://docker.io/myapp:v1.0")
 		if err != nil {
 			t.Fatalf("Parse() unexpected error: %v", err)
 		}
@@ -283,9 +283,9 @@ func FuzzParse(f *testing.F) {
 	f.Add("docker.io/myapp@sha256:abc123")
 	f.Add("")
 	f.Add("://invalid")
-	// Seeds that exercise valid cr:// and oci:// paths.
-	f.Add("cr://docker.io/library/nginx:latest")
-	f.Add("cr://localhost:5000/myapp:v1")
+	// Seeds that exercise valid oci:// registries and layouts.
+	f.Add("oci://docker.io/library/nginx:latest")
+	f.Add("oci://localhost:5000/myapp:v1")
 	f.Add("oci://relative/path:tag")
 	f.Add("oci:///absolute/path:tag")
 
@@ -293,9 +293,9 @@ func FuzzParse(f *testing.F) {
 		ref, err := Parse(input)
 
 		if err == nil {
-			// Valid output must have non-empty Host for cr:// references.
-			if ref.Scheme == RegistryScheme && ref.Host == "" {
-				t.Errorf("host should not be empty for valid cr:// input %q", input)
+			// A registry's reference has a host, a layout's has none.
+			if IsRemote(input) != (ref.Host != "") {
+				t.Errorf("host %q for %q, which is a registry's: %v", ref.Host, input, IsRemote(input))
 			}
 			// Ref must not be empty.
 			if ref.Ref == "" {
@@ -311,4 +311,45 @@ func FuzzParse(f *testing.F) {
 			}
 		}
 	})
+}
+
+// One scheme, two places: the form of what follows oci:// tells a local
+// layout's <path>:<repo>:<tag> from a registry's <host>[:<port>]/<repo>:<tag>.
+func TestParse_LayoutOrRegistry(t *testing.T) {
+	tests := []struct {
+		in   string
+		want Reference
+	}{
+		{"oci:///home/user/layout-dir:my/image:1.2.3", Reference{Scheme: OciScheme, Path: "/home/user/layout-dir", Ref: "my/image:1.2.3"}},
+		{"oci://layout-dir:my/image:1.2.3", Reference{Scheme: OciScheme, Path: "layout-dir", Ref: "my/image:1.2.3"}},
+		{"oci://./layout-dir:my/image:1.2.3", Reference{Scheme: OciScheme, Path: "./layout-dir", Ref: "my/image:1.2.3"}},
+		{"oci://../layouts/prod:my/image:1.2.3", Reference{Scheme: OciScheme, Path: "../layouts/prod", Ref: "my/image:1.2.3"}},
+		{"oci://layouts/prod:my/image:1.2.3", Reference{Scheme: OciScheme, Path: "layouts/prod", Ref: "my/image:1.2.3"}},
+		{"oci://my.layout:my/image:1.2.3", Reference{Scheme: OciScheme, Path: "my.layout", Ref: "my/image:1.2.3"}},
+		{"oci://localhost/my/image:1.2.3", Reference{Scheme: OciScheme, Host: "localhost", Path: "my/image", Ref: "1.2.3"}},
+		{"oci://localho.st/my/image:1.2.3", Reference{Scheme: OciScheme, Host: "localho.st", Path: "my/image", Ref: "1.2.3"}},
+		{"oci://docker.io/library/postgres:18-alpine", Reference{Scheme: OciScheme, Host: "docker.io", Path: "library/postgres", Ref: "18-alpine"}},
+		{"oci://localhost:5000/my/image:1.2.3", Reference{Scheme: OciScheme, Host: "localhost:5000", Path: "my/image", Ref: "1.2.3"}},
+		{"oci://registry:5000/my/image:1.2.3", Reference{Scheme: OciScheme, Host: "registry:5000", Path: "my/image", Ref: "1.2.3"}},
+		{"oci://10.92.16.25:5000/ee/bundles/adh:4.3.0", Reference{Scheme: OciScheme, Host: "10.92.16.25:5000", Path: "ee/bundles/adh", Ref: "4.3.0"}},
+	}
+	for _, tt := range tests {
+		got, err := Parse(tt.in)
+		if err != nil {
+			t.Errorf("%s: %v", tt.in, err)
+			continue
+		}
+		if got.Scheme != tt.want.Scheme || got.Host != tt.want.Host || got.Path != tt.want.Path || got.Ref != tt.want.Ref {
+			t.Errorf("%s:\n got %+v\nwant %+v", tt.in, got, tt.want)
+		}
+		if got.String() != tt.in {
+			t.Errorf("%s: String() = %s", tt.in, got.String())
+		}
+		if IsLayout(tt.in) != (tt.want.Host == "") || got.IsLayout() != (tt.want.Host == "") {
+			t.Errorf("%s: layout %v", tt.in, IsLayout(tt.in))
+		}
+	}
+	if _, err := Parse("cr://docker.io/library/postgres:18"); err == nil {
+		t.Error("cr:// is no scheme any more")
+	}
 }

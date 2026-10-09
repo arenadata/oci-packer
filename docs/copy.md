@@ -11,7 +11,7 @@ registry→registry and layout→layout.
 
 | Endpoint        | Scheme   | Example                                                     |
 |-----------------|----------|-------------------------------------------------------------|
-| Remote registry | `cr://`  | `cr://registry.example.com/repo/name:tag`                   |
+| Remote registry | `oci://`  | `oci://registry.example.com/repo/name:tag`                   |
 | OCI layout      | `oci://` | `oci://./layout:repo/name:tag` (`oci://<dir>:<repo>:<tag>`) |
 
 ## Flags
@@ -45,8 +45,8 @@ on the CPU, raising `-j` is what makes a large image land faster; lower it when 
 machine is short on bandwidth.
 
 ```bash
-oci-packer copy -j 16 cr://registry.example.com/example/service:v1 oci://./layout:example/service:v1
-oci-packer copy -j 1  cr://registry.example.com/example/service:v1 oci://./layout:example/service:v1  # one at a time
+oci-packer copy -j 16 oci://registry.example.com/example/service:v1 oci://./layout:example/service:v1
+oci-packer copy -j 1  oci://registry.example.com/example/service:v1 oci://./layout:example/service:v1  # one at a time
 ```
 
 Three guarantees hold whatever `-j` is set to:
@@ -67,18 +67,18 @@ re-running the copy resumes rather than starting over.
 ```bash
 # Registry → OCI layout
 oci-packer copy \
-  cr://registry.example.com/example/service:v1 \
+  oci://registry.example.com/example/service:v1 \
   oci://./layout:example/service:v1
 
 # Registry → unpacked OCI layout (mountable), single platform
 oci-packer copy --unpack --platform linux/amd64 \
-  cr://registry.example.com/example/service:v1 \
+  oci://registry.example.com/example/service:v1 \
   oci://./layout:example/service:v1
 
 # OCI layout → registry
 oci-packer copy \
   oci://./layout:example/service:v1 \
-  cr://registry.example.com/example/service:v1
+  oci://registry.example.com/example/service:v1
 
 # OCI layout → unpacked OCI layout (repack an existing tar-mode layout for mount)
 oci-packer copy --unpack \

@@ -40,7 +40,7 @@ type Metadata struct {
 	Annotations map[string]string `yaml:"annotations,omitempty" json:"annotations,omitempty"`
 }
 
-// Descriptor is one item: where it comes from (file://, dir://, cr://), its
+// Descriptor is one item: where it comes from (file://, dir://, oci://), its
 // artifact type, its platform (an image), its annotations.
 type Descriptor struct {
 	From   string            `yaml:"from" json:"from"`

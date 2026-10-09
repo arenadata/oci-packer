@@ -105,7 +105,7 @@ type manifest struct {
 }
 
 // mountOnly reports whether this member of an index is nothing but a remote
-// reference: one cr:// descriptor and no config. Such a member is not built —
+// reference: one oci:// descriptor and no config. Such a member is not built —
 // the reference is mounted and its own descriptor takes the member's place, so
 // an image lands in an index as its manifest and not as a manifest wrapped
 // around it.
@@ -190,8 +190,7 @@ func (m manifest) Push(ctx context.Context, pusher registry.Pusher) (ocispecv1.D
 func (m manifest) mount(ctx context.Context, pusher registry.Pusher, d Descriptor) (ocispecv1.Descriptor, error) {
 	log := logger.New("mount_repository")
 
-	ref := strings.TrimPrefix(d.From, reference.RegistryScheme.String())
-	parsedRef, err := reference.ParseRegistryReference(ref)
+	parsedRef, err := reference.ParseRegistryReference(d.From)
 	if err != nil {
 		return ocispecv1.Descriptor{}, err
 	}
@@ -202,9 +201,9 @@ func (m manifest) mount(ctx context.Context, pusher registry.Pusher, d Descripto
 		return err
 	})
 	if err != nil {
-		log.WithError(err).WithField("from", ref).Error("failed to mount repository")
+		log.WithError(err).WithField("from", d.From).Error("failed to mount repository")
 	} else {
-		log.WithField("from", ref).Debug("mounted repository")
+		log.WithField("from", d.From).Debug("mounted repository")
 	}
 	return desc, err
 }

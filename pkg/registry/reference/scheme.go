@@ -23,8 +23,10 @@ import (
 type Schema string
 
 const (
+	// OciScheme names an OCI image or artifact, wherever it is: in a
+	// registry (oci://<host>[:<port>]/<repo>:<tag>) or in a local OCI layout
+	// (oci://<path>:<repo>:<tag>) — the form tells which, see IsLayout.
 	OciScheme      Schema = "oci"
-	RegistryScheme Schema = "cr"
 	DirSchema      Schema = "dir"
 	FileSchema     Schema = "file"
 	S3Schema       Schema = "s3"
@@ -37,7 +39,6 @@ var isRemoteScheme = map[Schema]bool{
 	OciScheme:      false,
 	DirSchema:      false,
 	FileSchema:     false,
-	RegistryScheme: true,
 	S3Schema:       true,
 	S3httpSchema:   true,
 	HttpSchema:     true,
@@ -64,5 +65,5 @@ func GetScheme(s string) (Schema, error) {
 }
 
 func IsRegistryScheme(s Schema) bool {
-	return OciScheme == s || RegistryScheme == s
+	return OciScheme == s
 }

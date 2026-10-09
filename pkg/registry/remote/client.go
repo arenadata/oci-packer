@@ -68,7 +68,7 @@ func New(ref string, opts ...Option) (registry.Resolver, error) {
 }
 
 func NewRegistryClient(ref reference.Reference, opts ...Option) (registry.Resolver, error) {
-	if ref.Scheme != reference.RegistryScheme {
+	if !ref.IsRemote() {
 		return nil, reference.ErrSchemeUnsupported
 	}
 

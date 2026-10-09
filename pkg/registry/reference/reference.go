@@ -31,12 +31,18 @@ type Reference struct {
 	desc ocispecv1.Descriptor
 }
 
+// IsLayout reports whether the reference is to a local OCI layout: no host.
+func (r Reference) IsLayout() bool { return r.Scheme == OciScheme && r.Host == "" }
+
+// IsRemote reports whether the reference is to a registry.
+func (r Reference) IsRemote() bool { return r.Scheme == OciScheme && r.Host != "" }
+
 func (r Reference) IsZero() bool {
 	return r.Scheme == "" && r.Host == "" && r.Path == "" && r.Ref == ""
 }
 
 func (r Reference) String() string {
-	if OciScheme.Eq(string(r.Scheme)) {
+	if r.Host == "" {
 		return strings.Join([]string{r.Scheme.String(), r.RepoReference()}, "")
 	}
 

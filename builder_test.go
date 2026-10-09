@@ -117,7 +117,7 @@ func TestHandleItem_DirHandler(t *testing.T) {
 }
 
 func TestHandleItem_UnsupportedSource(t *testing.T) {
-	// OCI sources (oci://, cr://) are not handled by handleItem — they return an error
+	// OCI sources (oci://, oci://) are not handled by handleItem — they return an error
 	item := Descriptor{From: "oci://registry/image:latest"}
 	_, err := handleItem(context.Background(), item, builderOptions{}, parallel.NewBudget(DefaultConcurrency))
 	if err == nil {
@@ -265,7 +265,7 @@ func TestPackPack_IndexCreatedForPlatformItem(t *testing.T) {
 	}
 }
 
-// A cr:// item of an index is the member itself: the index carries the mounted
+// A oci:// item of an index is the member itself: the index carries the mounted
 // manifest's descriptor — its own artifactType, the item's annotations on top —
 // and no manifest is built around it. A config on such an item is refused.
 func TestPackPack_IndexOCIItemIsTheMemberItself(t *testing.T) {
@@ -273,7 +273,7 @@ func TestPackPack_IndexOCIItemIsTheMemberItself(t *testing.T) {
 	p := Pack{
 		Type: "application/vnd.example.pack",
 		Items: []Descriptor{
-			{From: "cr://registry.example/images/app:1.0", Platform: "linux/amd64",
+			{From: "oci://registry.example/images/app:1.0", Platform: "linux/amd64",
 				Annotations: map[string]string{"io.example.key": "app"}},
 			{From: "file://" + f, Type: "application/vnd.example.schema"},
 		},
@@ -316,7 +316,7 @@ func TestPackPack_IndexOCIItemIsTheMemberItself(t *testing.T) {
 	}
 
 	withConfig := Pack{Items: []Descriptor{
-		{From: "cr://registry.example/images/app:1.0", Config: &ConfigDescriptor{From: "file://" + f}},
+		{From: "oci://registry.example/images/app:1.0", Config: &ConfigDescriptor{From: "file://" + f}},
 	}}
 	if _, err := Build(context.Background(), withConfig, &mockPusher{}); err == nil {
 		t.Fatal("a mounted item carrying a config must be refused")

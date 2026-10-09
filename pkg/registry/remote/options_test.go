@@ -25,7 +25,7 @@ import (
 )
 
 func TestWithPlainHttp_Option(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{ref: parsedRef}
 
 	option := WithPlainHttp()
@@ -35,14 +35,14 @@ func TestWithPlainHttp_Option(t *testing.T) {
 }
 
 func TestWithPlainHttp_DefaultIsFalse(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{ref: parsedRef}
 
 	assert.False(t, client.plainHttp)
 }
 
 func TestWithInsecure_Option(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{ref: parsedRef}
 
 	option := WithInsecure()
@@ -52,14 +52,14 @@ func TestWithInsecure_Option(t *testing.T) {
 }
 
 func TestWithInsecure_DefaultIsFalse(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{ref: parsedRef}
 
 	assert.False(t, client.insecure)
 }
 
 func TestWithCreds_Option(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{ref: parsedRef}
 
 	option := WithCreds("testuser", "testpass")
@@ -70,7 +70,7 @@ func TestWithCreds_Option(t *testing.T) {
 }
 
 func TestWithCreds_EmptyCredentials(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{ref: parsedRef}
 
 	option := WithCreds("", "")
@@ -81,7 +81,7 @@ func TestWithCreds_EmptyCredentials(t *testing.T) {
 }
 
 func TestWithCreds_SpecialCharacters(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{ref: parsedRef}
 
 	option := WithCreds("user@domain.com", "p@$$w0rd!")
@@ -92,7 +92,7 @@ func TestWithCreds_SpecialCharacters(t *testing.T) {
 }
 
 func TestWithClient_Option(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{ref: parsedRef}
 
 	customClient := packerhttp.New()
@@ -103,7 +103,7 @@ func TestWithClient_Option(t *testing.T) {
 }
 
 func TestWithClient_NilClient(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{ref: parsedRef}
 
 	option := WithClient(nil)
@@ -113,7 +113,7 @@ func TestWithClient_NilClient(t *testing.T) {
 }
 
 func TestOptions_MultipleApplications(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{ref: parsedRef}
 
 	opts := []Option{
@@ -133,7 +133,7 @@ func TestOptions_MultipleApplications(t *testing.T) {
 }
 
 func TestOptions_OverrideCreds(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{ref: parsedRef}
 
 	// Apply first set of credentials
@@ -152,7 +152,7 @@ func TestOptions_OverrideCreds(t *testing.T) {
 }
 
 func TestOptions_OverrideClient(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{ref: parsedRef}
 
 	client1 := packerhttp.New()
@@ -169,7 +169,7 @@ func TestOptions_OverrideClient(t *testing.T) {
 }
 
 func TestWithPlainHttp_DoesNotAffectOtherFields(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{
 		ref:      parsedRef,
 		insecure: true,
@@ -187,7 +187,7 @@ func TestWithPlainHttp_DoesNotAffectOtherFields(t *testing.T) {
 }
 
 func TestWithInsecure_DoesNotAffectOtherFields(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 	client := &Client{
 		ref:       parsedRef,
 		plainHttp: true,
@@ -205,7 +205,7 @@ func TestWithInsecure_DoesNotAffectOtherFields(t *testing.T) {
 }
 
 func TestAllOptions_CombinedEffect(t *testing.T) {
-	parsedRef, _ := reference.Parse("cr://registry.example.com/library/image:latest")
+	parsedRef, _ := reference.Parse("oci://registry.example.com/library/image:latest")
 
 	client, err := NewRegistryClient(
 		parsedRef,

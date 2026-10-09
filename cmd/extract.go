@@ -19,7 +19,7 @@ packing: pack.yaml with the artifact's type, annotations and items, every packed
 file at its title (under the directory a dir:// item named), and a mounted
 image's config as image.json when --image-config is set.
 
-A mounted member becomes a cr://<registry>/<repo>@<digest> item; an artifact
+A mounted member becomes a oci://<registry>/<repo>@<digest> item; an artifact
 mounted among the members is extracted too, into a sibling directory named by
 the --name-by annotation, so a pack of artifacts comes out as one flat tree:
 
@@ -30,7 +30,7 @@ the --name-by annotation, so a pack of artifacts comes out as one flat tree:
 }
 
 func init() {
-	extractCmd.Flags().String("registry", "", "Registry host the cr:// items of the written pack files point at")
+	extractCmd.Flags().String("registry", "", "Registry host the oci:// items of the written pack files point at")
 	extractCmd.Flags().String("name-by", "", "Annotation that names an artifact's directory (default org.opencontainers.image.title)")
 	extractCmd.Flags().Bool("image-config", false, "Write a mounted image's config as image.json")
 	rootCmd.AddCommand(extractCmd)
@@ -50,7 +50,7 @@ func extractCmdRun(cmd *cobra.Command, args []string) {
 	nameBy, _ := cmd.Flags().GetString("name-by")
 	imageConfig, _ := cmd.Flags().GetBool("image-config")
 	// In an oci:// reference the path is the layout directory and Ref is
-	// <repo>:<tag> or <repo>@<digest>; the repository is what cr:// items name.
+	// <repo>:<tag> or <repo>@<digest>; the repository is what oci:// items name.
 	repo := parsedRef.Ref
 	if i := strings.LastIndexAny(repo, ":@"); i >= 0 {
 		repo = repo[:i]

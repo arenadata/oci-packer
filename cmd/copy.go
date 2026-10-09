@@ -27,7 +27,8 @@ import (
 var copyCmd = &cobra.Command{
 	Use:   "copy <src> <dst>",
 	Short: "Copy OCI Pack between remote registries and OCI layouts",
-	Long: `Copy images/artifacts between a remote registry (cr://) and/or an OCI layout (oci://).
+	Long: `Copy images/artifacts between remote registries and/or OCI layouts, both oci://:
+a registry as oci://<host>[:<port>]/<repo>:<tag>, a layout as oci://<path>:<repo>:<tag>.
 
 Any combination of endpoints is supported, including layout-to-layout. With --unpack the
 destination layout stores layers as unpacked directories, so copying an existing tar-mode
@@ -125,11 +126,11 @@ func copyCmdRun(cmd *cobra.Command, args []string) {
 	log.Info("copy operation completed successfully")
 }
 
-// newCopyEndpoint builds a resolver for a copy endpoint based on its scheme:
-// oci:// is an OCI layout (unpack applies when it is the destination), anything
-// else is a remote registry.
+// newCopyEndpoint builds a resolver for a copy endpoint by the form of its
+// oci:// reference: a local OCI layout (unpack applies when it is the
+// destination), or a remote registry.
 func newCopyEndpoint(cmd *cobra.Command, ref string, unpack bool) (registry.Resolver, string, error) {
-	if reference.OciScheme.IsPrefix(ref) {
+	if reference.IsLayout(ref) {
 		var opts []layout.Option
 		if unpack {
 			opts = append(opts, layout.Unpack())

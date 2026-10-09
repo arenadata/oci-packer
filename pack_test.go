@@ -234,7 +234,7 @@ func TestIsValidSource(t *testing.T) {
 		},
 		{
 			name:  "valid docker schema",
-			from:  "cr://image:tag",
+			from:  "oci://image:tag",
 			valid: true,
 		},
 		{
@@ -434,7 +434,7 @@ func TestPackValidate_AllValidSchemasForItems(t *testing.T) {
 		"file://a.bin",
 		"dir://mydir",
 		"oci://host/img:tag",
-		"cr://host/img:tag",
+		"oci://host/img:tag",
 		"http://example.com/f",
 		"https://example.com/f",
 		"s3://bucket/obj",

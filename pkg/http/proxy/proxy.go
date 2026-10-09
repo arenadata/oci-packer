@@ -69,7 +69,8 @@ func New(registryRef string, opts ...Option) (*Proxy, error) {
 		return nil, reference.ErrSchemeUnsupported
 	}
 
-	host := strings.TrimPrefix(registryRef, scheme.String())
+	rest := strings.TrimPrefix(registryRef, scheme.String())
+	host := rest
 	if idx := strings.IndexByte(host, '/'); idx != -1 {
 		host = host[:idx]
 	}
@@ -80,16 +81,16 @@ func New(registryRef string, opts ...Option) (*Proxy, error) {
 	}
 
 	ref := reference.Reference{Scheme: scheme}
-	switch scheme {
-	case reference.OciScheme:
-		ref.Path = host
+	switch {
+	case reference.IsLayout(registryRef):
+		ref.Path, _, _ = strings.Cut(rest, ":") // the layout's directory
 
 		var layoutOpts []layout.Option
 		if proxy.unpack {
 			layoutOpts = append(layoutOpts, layout.Unpack())
 		}
 		proxy.resolver, err = layout.Open(ref, layoutOpts...)
-	case reference.RegistryScheme:
+	default:
 		ref.Host = host
 
 		var remoteOpts []remote.Option

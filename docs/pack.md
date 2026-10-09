@@ -4,10 +4,10 @@ The root command builds an OCI artifact from a declarative **pack file** and pus
 container registry.
 
 ```
-oci-packer -f <pack-file> [flags] <cr://registry/repo:tag>
+oci-packer -f <pack-file> [flags] <oci://registry.example.com/repo:tag>
 ```
 
-`<reference>` is the push destination and must use the `cr://` scheme.
+`<reference>` is the push destination and must use the `oci://` scheme.
 
 ## What it does
 
@@ -16,11 +16,11 @@ pack file (YAML) → validate → per-item handler → manifest or index → pus
     file://    → file as a layer
     dir://     → each file in the directory as a layer
     http(s):// → download, then add as a layer
-    cr://      → mount layers from another repository (index mode)
+    oci://      → mount layers from another repository (index mode)
 ```
 
 A flat **manifest** is produced unless any item has a `platform` field or a registry
-(`cr://`) source, in which case a multi-platform **index** is produced.
+(`oci://`) source, in which case a multi-platform **index** is produced.
 
 ## Flags
 
@@ -78,13 +78,13 @@ items:
 
 ```bash
 # Pack and push
-oci-packer -f artifact.yaml cr://registry.example.com/myartifact:v1.0
+oci-packer -f artifact.yaml oci://registry.example.com/myartifact:v1.0
 
 # With a custom temp directory for HTTP downloads
-oci-packer -f artifact.yaml cr://registry.example.com/myartifact:v1.0 --tmp-dir /tmp/packer
+oci-packer -f artifact.yaml oci://registry.example.com/myartifact:v1.0 --tmp-dir /tmp/packer
 
 # Against an insecure (plain HTTP) registry, with credentials
-oci-packer -f artifact.yaml cr://localhost:5000/myartifact:v1.0 \
+oci-packer -f artifact.yaml oci://localhost:5000/myartifact:v1.0 \
   --plain-http -l user -p pass
 ```
 

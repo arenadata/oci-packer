@@ -40,7 +40,7 @@ func TestReference_IsZero_NonZeroReference(t *testing.T) {
 		{
 			name: "with scheme",
 			ref: Reference{
-				Scheme: RegistryScheme,
+				Scheme: OciScheme,
 			},
 		},
 		{
@@ -64,7 +64,7 @@ func TestReference_IsZero_NonZeroReference(t *testing.T) {
 		{
 			name: "full reference",
 			ref: Reference{
-				Scheme: RegistryScheme,
+				Scheme: OciScheme,
 				Host:   "docker.io",
 				Path:   "library/nginx",
 				Ref:    "latest",
@@ -95,7 +95,7 @@ func TestReference_Descriptor_Empty(t *testing.T) {
 
 func TestReference_WithDescriptor(t *testing.T) {
 	original := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
@@ -134,7 +134,7 @@ func TestReference_WithDescriptor(t *testing.T) {
 
 func TestReference_WithDescriptor_ChainedCalls(t *testing.T) {
 	ref := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
@@ -213,7 +213,7 @@ func TestReference_RepoReference_MultiLevelPath(t *testing.T) {
 
 func TestReference_Merge_EmptySecond(t *testing.T) {
 	base := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
@@ -231,7 +231,7 @@ func TestReference_Merge_EmptySecond(t *testing.T) {
 
 func TestReference_Merge_ReplaceTag(t *testing.T) {
 	base := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
@@ -259,7 +259,7 @@ func TestReference_Merge_ReplaceTag(t *testing.T) {
 
 func TestReference_Merge_ReplacePathAndRef(t *testing.T) {
 	base := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
@@ -285,7 +285,7 @@ func TestReference_Merge_ReplacePathAndRef(t *testing.T) {
 
 func TestReference_Merge_PreservesNonEmptyFields(t *testing.T) {
 	base := Reference{
-		Scheme: RegistryScheme,
+		Scheme: OciScheme,
 		Host:   "docker.io",
 		Path:   "library/nginx",
 		Ref:    "latest",
@@ -300,7 +300,7 @@ func TestReference_Merge_PreservesNonEmptyFields(t *testing.T) {
 
 	merged := base.Merge(update)
 
-	// Scheme doesn't get merged, so it stays as RegistryScheme
+	// Scheme doesn't get merged, so it stays as OciScheme
 	if merged.Scheme != base.Scheme {
 		t.Errorf("Scheme should not change during merge")
 	}

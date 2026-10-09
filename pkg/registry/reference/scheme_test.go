@@ -32,7 +32,7 @@ func TestGetScheme_ValidSchemes(t *testing.T) {
 		expect Schema
 	}{
 		{"oci scheme", "oci://path/to/dir", OciScheme},
-		{"registry scheme", "cr://docker.io/nginx", RegistryScheme},
+		{"registry scheme", "oci://docker.io/nginx", OciScheme},
 		{"http scheme", "http://example.com", HttpSchema},
 		{"https scheme", "https://example.com", HttpsSchema},
 		{"s3 scheme", "s3://bucket/key", S3Schema},
@@ -77,14 +77,14 @@ func TestGetScheme_InvalidScheme(t *testing.T) {
 // IsRegistryScheme
 // ---------------------------------------------------------------------------
 
-func TestIsRegistryScheme_RegistrySchemes(t *testing.T) {
+func TestIsRegistryScheme_OciSchemes(t *testing.T) {
 	tests := []struct {
 		name   string
 		scheme Schema
 		expect bool
 	}{
 		{"OCI scheme", OciScheme, true},
-		{"Container Registry scheme", RegistryScheme, true},
+		{"Container Registry scheme", OciScheme, true},
 		{"File scheme", FileSchema, false},
 		{"Dir scheme", DirSchema, false},
 		{"S3 scheme", S3Schema, false},
@@ -111,7 +111,6 @@ func TestSchema_String_AllSchemes(t *testing.T) {
 		expect string
 	}{
 		{"OCI", OciScheme, "oci://"},
-		{"CR", RegistryScheme, "cr://"},
 		{"Dir", DirSchema, "dir://"},
 		{"File", FileSchema, "file://"},
 		{"S3", S3Schema, "s3://"},
@@ -142,9 +141,9 @@ func TestSchema_IsPrefix_AllSchemes(t *testing.T) {
 		expect bool
 	}{
 		{"oci positive", OciScheme, "oci://something", true},
-		{"oci negative", OciScheme, "cr://something", false},
-		{"cr positive", RegistryScheme, "cr://docker.io/nginx", true},
-		{"cr negative", RegistryScheme, "oci://path", false},
+		{"oci registry", OciScheme, "oci://docker.io/nginx", true},
+		{"oci negative", OciScheme, "dir://something", false},
+		{"cr is no scheme", OciScheme, "cr://docker.io/nginx", false},
 		{"s3 positive", S3Schema, "s3://bucket/key", true},
 		{"s3+http positive", S3httpSchema, "s3+http://bucket/key", true},
 		{"http positive", HttpSchema, "http://example.com", true},
@@ -200,8 +199,7 @@ func TestSchema_Eq_AllSchemes(t *testing.T) {
 	}{
 		{"oci positive", OciScheme, "oci", true},
 		{"oci negative", OciScheme, "Oci", false},
-		{"cr positive", RegistryScheme, "cr", true},
-		{"cr negative", RegistryScheme, "CR", false},
+		{"cr is no scheme", OciScheme, "cr", false},
 		{"file positive", FileSchema, "file", true},
 		{"s3 positive", S3Schema, "s3", true},
 		{"http positive", HttpSchema, "http", true},
@@ -340,9 +338,9 @@ func TestIsOCI_EdgeCases(t *testing.T) {
 		expect bool
 	}{
 		{"oci", "oci://path", true},
-		{"cr", "cr://host/image", true},
+		{"cr", "oci://host/image", true},
 		{"oci with path", "oci:///absolute/path", true},
-		{"cr with tag", "cr://docker.io/nginx:latest", true},
+		{"cr with tag", "oci://docker.io/nginx:latest", true},
 		{"file not oci", "file://path", false},
 		{"http not oci", "http://example.com", false},
 		{"s3 not oci", "s3://bucket", false},
@@ -366,7 +364,7 @@ func TestIsOCI_EdgeCases(t *testing.T) {
 
 func TestSchemaConsistency(t *testing.T) {
 	allSchemes := []Schema{
-		OciScheme, RegistryScheme, DirSchema, FileSchema,
+		OciScheme, OciScheme, DirSchema, FileSchema,
 		S3Schema, S3httpSchema, HttpSchema, HttpsSchema,
 	}
 

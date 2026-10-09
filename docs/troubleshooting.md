@@ -15,15 +15,15 @@ Symptoms, causes and fixes across all `oci-packer` commands. See the
 
 ### `scheme required` / `scheme unsupported`
 
-A registry reference was passed without the `cr://` scheme, or with an unsupported one.
-Registry references must be `cr://host/repo:tag`; OCI layout references must be
+A registry reference was passed without the `oci://` scheme, or with an unsupported one.
+Registry references must be `oci://host/repo:tag`; OCI layout references must be
 `oci://<dir>:<repo>:<tag>`.
 
 ```bash
 # wrong
 oci-packer -f a.yaml registry.example.com/app:v1
 # right
-oci-packer -f a.yaml cr://registry.example.com/app:v1
+oci-packer -f a.yaml oci://registry.example.com/app:v1
 ```
 
 ### Authentication / `401 Unauthorized`
@@ -31,7 +31,7 @@ oci-packer -f a.yaml cr://registry.example.com/app:v1
 Supply registry credentials:
 
 ```bash
-oci-packer copy -l user -p pass cr://registry.example.com/app:v1 oci://./layout:app:v1
+oci-packer copy -l user -p pass oci://registry.example.com/app:v1 oci://./layout:app:v1
 ```
 
 ### TLS / transport errors (`http: server gave HTTP response to HTTPS client`, `x509: certificate signed by unknown authority`)
@@ -63,7 +63,7 @@ directory.
 ### `unsupported source type`
 
 An item uses a scheme the builder does not handle. Supported item sources: `file://`,
-`dir://`, `http://`, `https://`, and `cr://` (registry, for index/mount mode).
+`dir://`, `http://`, `https://`, and `oci://` (registry, for index/mount mode).
 
 ---
 
@@ -157,7 +157,7 @@ in unpack mode — either from the registry, or by repacking the existing layout
 
 ```bash
 # from the registry
-oci-packer copy --unpack cr://registry/example/service:v1 oci://./layout:example/service:v1
+oci-packer copy --unpack oci://registry.example.com/example/service:v1 oci://./layout:example/service:v1
 
 # or repack an existing tar-mode layout into a new unpacked one
 oci-packer copy --unpack oci://./layout:example/service:v1 oci://./unpacked:example/service:v1
@@ -177,7 +177,7 @@ The layout holds a multi-platform index without a manifest for the host architec
 matching platform (or the full index) before mounting:
 
 ```bash
-oci-packer copy --platform linux/amd64 cr://registry/app:v1 oci://./layout:app:v1
+oci-packer copy --platform linux/amd64 oci://registry.example.com/app:v1 oci://./layout:app:v1
 ```
 
 ### `lowerdir option string … exceeds kernel limit`

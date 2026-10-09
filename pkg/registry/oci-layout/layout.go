@@ -76,7 +76,7 @@ func New(ref string, opts ...Option) (registry.Resolver, error) {
 		return nil, err
 	}
 
-	if parsedRef.Scheme != reference.OciScheme {
+	if !parsedRef.IsLayout() {
 		return nil, reference.ErrSchemeUnsupported
 	}
 

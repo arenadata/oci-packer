@@ -97,8 +97,8 @@ func TestNew_InvalidRef(t *testing.T) {
 }
 
 func TestNew_WrongSchemeRejected(t *testing.T) {
-	// cr:// is not oci:// — should be rejected
-	_, err := New("cr://host/image:tag")
+	// a registry's reference is not a layout's — should be rejected
+	_, err := New("oci://registry.example/image:tag")
 	if err == nil {
 		t.Fatal("New() should reject non-oci scheme")
 	}
