@@ -967,7 +967,7 @@ func TestIndex_ConsistencyAfterMultipleTags(t *testing.T) {
 	l := newLayout(t)
 
 	// Create and tag multiple manifests
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		data := []byte("manifest-" + string(rune(i)))
 		dgst := digest.FromBytes(data)
 		desc := ocispecv1.Descriptor{

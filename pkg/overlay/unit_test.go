@@ -137,7 +137,7 @@ func TestWriteUnits_WithBinds(t *testing.T) {
 func TestWriteUnits_LowerdirTooLong(t *testing.T) {
 	dir := t.TempDir()
 	var lowers []string
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		lowers = append(lowers, "/very/long/blob/path/sha256/"+strings.Repeat("a", 32))
 	}
 	_, err := WriteUnits(UnitOptions{

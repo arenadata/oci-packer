@@ -194,7 +194,7 @@ func TestMemoryCacheConcurrency(t *testing.T) {
 	wg := sync.WaitGroup{}
 
 	// Run concurrent sets and gets
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		wg.Add(1)
 
 		go func(idx int) {
@@ -207,13 +207,10 @@ func TestMemoryCacheConcurrency(t *testing.T) {
 		}(i)
 	}
 
-	for i := 0; i < 5; i++ {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
+	for range 5 {
+		wg.Go(func() {
 			_ = cache.Get("repo", "linux/amd64", "version")
-		}()
+		})
 	}
 
 	wg.Wait()

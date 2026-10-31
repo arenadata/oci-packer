@@ -19,7 +19,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/arenadata/oci-packer/pkg/registry/reference"
@@ -104,7 +104,7 @@ func (l Layout) Delete(_ context.Context, ref reference.Reference) error {
 			orphans = append(orphans, d)
 		}
 	}
-	sort.Slice(orphans, func(i, j int) bool { return orphans[i] < orphans[j] })
+	slices.Sort(orphans)
 
 	// A currently-mounted layer must not be pulled out from under a live overlay
 	// mount. Abort before mutating the index so the layout stays intact. Only

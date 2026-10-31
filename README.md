@@ -57,7 +57,7 @@ Docker-образов: конфигурации, шаблоны, бинарны�
 
 ```
 oci-packer/
-├── cmd/                    # CLI-команды (pack, copy, extract, proxy, ...)
+├── cmd/                    # CLI-команды (pack, copy, extract, get, files, proxy, ...)
 ├── internal/
 │   └── logger/             # Внутренний логгер
 ├── pkg/
@@ -222,6 +222,22 @@ oci-packer extract oci://./layout:packs/adh:2.1.0 ./out \
   --name-by io.horchestra.name --image-config
 # ./out/adh/pack.yaml  ./out/adh/schema.json  ./out/kafka/templates/…  ./out/kafka/image.json …
 ```
+
+### Один файл артефакта из реестра (`get`, `files`)
+
+`get` скачивает один упакованный файл — только тот слой, в котором он лежит, без остального артефакта. Файл
+называется после тега (или digest) через второе двоеточие, своим путём в дереве артефакта (title слоя внутри
+каталога, который назвал `dir://`-элемент). Тег или digest обязателен; в пути могут быть двоеточия. `files` показывает,
+что артефакт упаковал сам (mount'нутый образ и вложенный артефакт — не его файлы):
+
+```bash
+oci-packer files oci://remote.registry.com/packs/application:v1.2.3
+oci-packer get   oci://remote.registry.com/packs/application:v1.2.3:schema.json
+oci-packer get   oci://remote.registry.com/packs/application:v1.2.3:templates/app.tmpl ./app.tmpl
+```
+
+Из кода: `reference.ParseFile`, `extract.List` и `extract.Open`; для тестов клиента реестр над layout поднимает
+`pkg/registry/regtest`.
 
 ### Удаление образа из layout (`delete`)
 
@@ -571,6 +587,22 @@ oci-packer extract oci://./layout:packs/adh:2.1.0 ./out \
   --name-by io.horchestra.name --image-config
 # ./out/adh/pack.yaml  ./out/adh/schema.json  ./out/kafka/templates/…  ./out/kafka/image.json …
 ```
+
+### One file of an artifact in a registry (`get`, `files`)
+
+`get` downloads one packed file — only the layer that holds it, not the rest of the artifact. The file is
+named after the tag (or digest) with a second colon, by its path in the artifact's tree (the layer's title,
+under the directory a `dir://` item named). A tag or digest is required; the path may hold colons. `files` lists
+what the artifact packs itself (a mounted image or a mounted artifact are not its files):
+
+```bash
+oci-packer files oci://remote.registry.com/packs/application:v1.2.3
+oci-packer get   oci://remote.registry.com/packs/application:v1.2.3:schema.json
+oci-packer get   oci://remote.registry.com/packs/application:v1.2.3:templates/app.tmpl ./app.tmpl
+```
+
+From code: `reference.ParseFile`, `extract.List` and `extract.Open`; a registry over a layout for client tests is
+`pkg/registry/regtest`.
 
 ### Delete an image from a layout (`delete`)
 

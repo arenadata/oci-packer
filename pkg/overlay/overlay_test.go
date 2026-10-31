@@ -41,7 +41,7 @@ func TestOverlayOptions_Empty(t *testing.T) {
 
 func TestOverlayOptions_TooLong(t *testing.T) {
 	var lowers []string
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		lowers = append(lowers, "/blobs/sha256/"+strings.Repeat("a", 32))
 	}
 	_, err := overlayOptions(lowers)

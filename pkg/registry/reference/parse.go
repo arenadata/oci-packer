@@ -18,6 +18,7 @@ package reference
 import (
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/opencontainers/go-digest"
@@ -43,8 +44,51 @@ func Parse(s string) (Reference, error) {
 		return Reference{}, ErrSchemeUnsupported
 	}
 
-	return parse(!isLayout(imagePathWithRef), imagePathWithRef)
+	ref, _, err := parse(!isLayout(imagePathWithRef), imagePathWithRef, false)
+	return ref, err
 }
+
+// ErrFileRequired is returned when a file reference names no file.
+var ErrFileRequired = errors.New("file reference: a path after the tag")
+
+// ParseFile reads the reference to one file of an artifact in a registry:
+//
+//	oci://<host>[:<port>]/<repo>:<tag>:<path/to/file>
+//	oci://<host>[:<port>]/<repo>@<algo>:<hex>:<path/to/file>
+//
+// The tag (or the digest) is required: the path follows it after a second
+// colon, and may hold colons itself. The reference is the artifact's, with the
+// file cut off. A layout is not named this way: its form already uses the colons
+// — read a file of a layout with the path as a separate argument.
+func ParseFile(s string) (Reference, string, error) {
+	scheme, rest, err := splitScheme(s)
+	if err != nil {
+		return Reference{}, "", err
+	}
+	if !OciScheme.Eq(scheme) {
+		return Reference{}, "", ErrSchemeUnsupported
+	}
+	if isLayout(rest) {
+		return Reference{}, "", fmt.Errorf("%s: a file is named in a registry reference, oci://<host>/<repo>:<tag>:<path>", s)
+	}
+	ref, file, err := parse(true, rest, true)
+	if err != nil {
+		return Reference{}, "", err
+	}
+	if len(ref.Host) == 0 {
+		return Reference{}, "", ErrInvalid
+	}
+	if len(file) == 0 {
+		return Reference{}, "", ErrFileRequired
+	}
+	file = path.Clean(strings.TrimPrefix(file, "/"))
+	if file == "." || file == ".." || strings.HasPrefix(file, "../") {
+		return Reference{}, "", fmt.Errorf("%s: the file %q is outside the artifact", s, file)
+	}
+	return ref, file, nil
+}
+
+const itemLayout = "%s: a local OCI layout — load the image into the registry the pack is pushed to first (oci-packer copy), and name its repository: oci://<repo>:<tag>"
 
 // ParseItem reads a pack file's oci:// item: oci://<repo>[:<tag>|@<digest>],
 // a repository of the registry the pack is pushed to. The image is loaded
@@ -56,25 +100,22 @@ func ParseItem(s string) (Reference, error) {
 	if !ok || len(rest) == 0 {
 		return Reference{}, ErrInvalid
 	}
-	layout := fmt.Errorf("%s: a local OCI layout — load the image into the registry the pack is pushed to first (oci-packer copy), and name its repository: oci://<repo>:<tag>", s)
-	host := fmt.Errorf("%s: an item names no registry — the image is in the registry the pack is pushed to: oci://<repo>:<tag>", s)
-	if strings.HasPrefix(rest, "/") || strings.HasPrefix(rest, ".") || strings.HasPrefix(rest, "~") {
-		return Reference{}, layout
+	// a name without a slash is a repository whatever it looks like: db:5432 is a tag, reg.io a name
+	form := classify(rest)
+	if !strings.Contains(rest, "/") && form == formRegistry {
+		form = formBare
 	}
-	first, _, hasSlash := strings.Cut(rest, "/")
-	if c := strings.IndexByte(first, ':'); c >= 0 && hasSlash {
-		if isPort(first[c+1:]) {
-			return Reference{}, host
-		}
-		return Reference{}, layout
-	}
-	if hasSlash && (strings.Contains(first, ".") || first == "localhost") {
-		return Reference{}, host
+	switch form {
+	case formLayout:
+		return Reference{}, fmt.Errorf(itemLayout, s)
+	case formRegistry:
+		return Reference{}, fmt.Errorf("%s: an item names no registry — the image is in the registry the pack is pushed to: oci://<repo>:<tag>", s)
 	}
 	if name, _, _ := strings.Cut(rest, "@"); strings.Count(name, ":") > 1 {
-		return Reference{}, layout // <path>:<repo>:<tag>
+		return Reference{}, fmt.Errorf(itemLayout, s) // <path>:<repo>:<tag>
 	}
-	return parse(false, rest)
+	ref, _, err := parse(false, rest, false)
+	return ref, err
 }
 
 // IsLayout reports whether an oci:// reference is to a local OCI layout
@@ -88,24 +129,45 @@ func IsRemote(s string) bool {
 	return OciScheme.IsPrefix(s) && !isLayout(strings.TrimPrefix(s, OciScheme.String()))
 }
 
-// isLayout tells a layout's <path>:<repo>:<tag> from a registry's
+// form is what the text after oci:// looks like.
+type form int
+
+const (
+	formBare     form = iota // no host and no path to a directory: <repo>[:<tag>], or anything else
+	formLayout               // a local layout: <path>:<repo>:<tag>
+	formRegistry             // <host>[:<port>]/<repo>:<tag>
+)
+
+// classify tells a layout's <path>:<repo>:<tag> from a registry's
 // <host>[:<port>]/<repo>:<tag> by its form. A path starting with /, . or ~
 // is a layout's. Otherwise the first segment, up to the first /, decides: a
 // colon followed by a port — a registry (localhost:5000); a colon followed
-// by anything else — a layout (layout-dir:my/image); a dot, or localhost —
-// a registry (docker.io, localho.st, 10.0.0.1); anything else — a layout.
-// So a relative layout whose first segment looks like a host is written
-// with ./ in front.
-func isLayout(rest string) bool {
+// by anything else and a slash after it — a layout (layout-dir:my/image);
+// a dot, or localhost — a registry (docker.io, localho.st, 10.0.0.1);
+// anything else is bare.
+func classify(rest string) form {
 	if strings.HasPrefix(rest, "/") || strings.HasPrefix(rest, ".") || strings.HasPrefix(rest, "~") {
-		return true
+		return formLayout
 	}
-	first, _, _ := strings.Cut(rest, "/")
+	first, _, hasSlash := strings.Cut(rest, "/")
 	if _, after, ok := strings.Cut(first, ":"); ok {
-		return !isPort(after)
+		switch {
+		case isPort(after):
+			return formRegistry
+		case hasSlash:
+			return formLayout
+		}
+		return formBare
 	}
-	return !strings.Contains(first, ".") && first != "localhost"
+	if strings.Contains(first, ".") || first == "localhost" {
+		return formRegistry
+	}
+	return formBare
 }
+
+// isLayout: a reference to a registry is the registry form; all the rest is a layout's. So a relative layout
+// whose first segment looks like a host is written with ./ in front.
+func isLayout(rest string) bool { return classify(rest) != formRegistry }
 
 func isPort(s string) bool {
 	if len(s) == 0 {
@@ -142,12 +204,13 @@ func splitScheme(s string) (string, string, error) {
 }
 
 // parse reads what follows oci://: a registry's <host>/<repo>:<tag> when
-// remote, a layout's <path>:<repo>:<tag> otherwise.
-func parse(remote bool, imagePathWithRef string) (Reference, error) {
+// remote, a layout's <path>:<repo>:<tag> otherwise. withFile: a path follows the
+// tag or the digest after one more colon, and is returned as it is.
+func parse(remote bool, imagePathWithRef string, withFile bool) (Reference, string, error) {
 	var ref Reference
 
 	if strings.Contains(imagePathWithRef, "//") {
-		return ref, ErrInvalid
+		return ref, "", ErrInvalid
 	}
 
 	if remote {
@@ -157,7 +220,7 @@ func parse(remote bool, imagePathWithRef string) (Reference, error) {
 		} else {
 			ref.Host = imagePathWithRef[:idx]
 			if len(ref.Host) == 0 {
-				return ref, ErrHostnameRequired
+				return ref, "", ErrHostnameRequired
 			}
 			imagePathWithRef = strings.TrimPrefix(imagePathWithRef[idx+1:], "/")
 		}
@@ -165,24 +228,35 @@ func parse(remote bool, imagePathWithRef string) (Reference, error) {
 
 	ref.Scheme = OciScheme
 
+	var file string
 	idx := strings.IndexAny(imagePathWithRef, "@:")
 	if idx == -1 {
 		ref.Path, ref.Ref = imagePathWithRef, "latest"
 	} else {
 		ref.Path, ref.Ref = imagePathWithRef[:idx], imagePathWithRef[idx+1:]
 
+		if withFile {
+			// a digest is <algo>:<hex>, so its colon is not the path's
+			skip := 0
+			if imagePathWithRef[idx] == '@' {
+				skip = strings.IndexByte(ref.Ref, ':') + 1
+			}
+			if next := strings.IndexByte(ref.Ref[skip:], ':'); next >= 0 {
+				ref.Ref, file = ref.Ref[:skip+next], ref.Ref[skip+next+1:]
+			}
+		}
 		if imagePathWithRef[idx] == '@' {
 			if _, err := digest.Parse(ref.Ref); err != nil {
-				return Reference{}, ErrInvalid
+				return Reference{}, "", ErrInvalid
 			}
 		}
 	}
 
 	if len(ref.Path) == 0 || strings.HasSuffix(ref.Path, "/") {
-		return Reference{}, ErrInvalid
+		return Reference{}, "", ErrInvalid
 	}
 
-	return ref, nil
+	return ref, file, nil
 }
 
 func ParseRegistryReference(ref string) (Reference, error) {
@@ -190,13 +264,13 @@ func ParseRegistryReference(ref string) (Reference, error) {
 		// [oci://registry.host/[repo/]]image[:tag|@digest]
 		var err error
 		var parsedReference Reference
-		if idx := strings.Index(ref, "://"); idx > -1 {
+		if found := strings.Contains(ref, "://"); found {
 			if !OciScheme.IsPrefix(ref) {
 				return Reference{}, ErrSchemeUnsupported
 			}
 			parsedReference, err = Parse(ref)
 		} else {
-			parsedReference, err = parse(true, ref)
+			parsedReference, _, err = parse(true, ref, false)
 		}
 		if err != nil {
 			return Reference{}, err
