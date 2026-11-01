@@ -190,7 +190,15 @@ func (e *extractor) parts(ctx context.Context, idx *ocispecv1.Index) ([]part, er
 	out := make([]part, 0, len(idx.Manifests))
 	for _, m := range idx.Manifests {
 		p := part{Desc: m, Kind: kindArtifact}
-		if !isIndex(m.MediaType) {
+		if isIndex(m.MediaType) {
+			image, err := e.imageIndex(ctx, m)
+			if err != nil {
+				return nil, err
+			}
+			if image {
+				p.Kind = kindImage // a multi-platform image: mounted, not unpacked
+			}
+		} else {
 			if err := e.fetchJSON(ctx, m, &p.Manifest); err != nil {
 				return nil, err
 			}
@@ -209,6 +217,35 @@ func (e *extractor) parts(ctx context.Context, idx *ocispecv1.Index) ([]part, er
 	return out, nil
 }
 
+// imageIndex reports whether an index is a multi-platform image rather than an artifact: it holds images (a
+// manifest with a config of its own) and, besides them, only the attestations a builder adds (platform
+// unknown/unknown) — no manifest of files. Its layers and attestations are the registry's, not files to write.
+// An index that mixes an image with files built from a pack file is a component, and is unpacked.
+func (e *extractor) imageIndex(ctx context.Context, m ocispecv1.Descriptor) (bool, error) {
+	var idx ocispecv1.Index
+	if err := e.fetchJSON(ctx, m, &idx); err != nil {
+		return false, err
+	}
+	var images int
+	for _, c := range idx.Manifests {
+		if isIndex(c.MediaType) {
+			return false, nil
+		}
+		if c.Platform != nil && c.Platform.OS == "unknown" && c.Platform.Architecture == "unknown" {
+			continue // an attestation
+		}
+		var man ocispecv1.Manifest
+		if err := e.fetchJSON(ctx, c, &man); err != nil {
+			return false, err
+		}
+		if isEmptyConfig(man.Config) {
+			return false, nil // files built from a pack file
+		}
+		images++
+	}
+	return images > 0, nil
+}
+
 // item turns one member of an index into pack-file items: a built manifest into its files, a mounted image into
 // a oci:// item (plus image.json on request), a mounted index or named artifact into a oci:// item and an
 // artifact of its own.
@@ -222,7 +259,7 @@ func (e *extractor) item(ctx context.Context, p part, dir string) ([]packer.Desc
 		}
 		return []packer.Descriptor{mounted}, nil
 	case kindImage:
-		if e.o.ImageConfig {
+		if e.o.ImageConfig && !isIndex(p.Desc.MediaType) {
 			if err := e.writeBlob(ctx, p.Manifest.Config, filepath.Join(dir, "image.json")); err != nil {
 				return nil, err
 			}
@@ -303,7 +340,7 @@ func layerPath(l ocispecv1.Descriptor) (string, error) {
 // remote is the item of a mounted member: its digest in the artifact's
 // repository — an item names no registry, the pack's own is meant.
 func (e *extractor) remote(d digest.Digest) string {
-	return "oci://" + e.repo + "@" + d.String()
+	return reference.OciScheme.String() + e.repo + "@" + d.String()
 }
 
 // annotationsOf reads the artifact's own annotations and lays the
