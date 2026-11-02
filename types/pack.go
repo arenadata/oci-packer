@@ -29,6 +29,10 @@ const AnnotationDir = "io.arenadata.oci-packer.dir"
 type Pack struct {
 	Metadata `json:",inline" yaml:",inline"`
 
+	// Repository is where the artifact is published, repo:tag of the registry the command names: the file says it,
+	// so that one artifact has one place.
+	Repository string `yaml:"repository,omitempty" json:"repository,omitempty" jsonschema:"description=repo:tag the artifact is published to, without a host"`
+
 	Type  string       `yaml:"type,omitempty" json:"type,omitempty" jsonschema:"description=Set artifactType"`
 	Items []Descriptor `json:"items" yaml:"items" jsonschema:"minItems=1"`
 }

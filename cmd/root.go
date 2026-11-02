@@ -18,11 +18,13 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/arenadata/oci-packer"
 	"github.com/arenadata/oci-packer/internal/logger"
 	"github.com/arenadata/oci-packer/internal/version"
 	"github.com/arenadata/oci-packer/pkg/registry"
+	"github.com/arenadata/oci-packer/pkg/registry/reference"
 	"github.com/arenadata/oci-packer/pkg/registry/remote"
 	"github.com/spf13/cobra"
 )
@@ -92,6 +94,11 @@ func packRun(cmd *cobra.Command, args []string) {
 		log.WithError(err).WithField("pack_file", file).Fatal("failed to load pack file")
 	}
 
+	ref, err = destination(ref, packManifest.Repository)
+	if err != nil {
+		log.WithError(err).WithField("pack_file", file).Fatal("no destination")
+	}
+
 	repoClient, err := remoteClientFromCommandArguments(cmd, ref)
 	if err != nil {
 		log.WithError(err).WithField("reference", ref).Fatal("failed to create remote registry client")
@@ -120,6 +127,28 @@ func packRun(cmd *cobra.Command, args []string) {
 
 	log.WithFields(logFields).Debug("tag set successfully")
 	log.WithField("reference", ref).Info("oci-packer execution completed")
+}
+
+// destination is where the artifact goes. The argument names the registry and the pack file the repository
+// (oci://host + repo:tag); an argument that names a repository too must say the same, one artifact has one place.
+func destination(arg, repository string) (string, error) {
+	rest, ok := strings.CutPrefix(arg, reference.OciScheme.String())
+	if !ok {
+		return "", fmt.Errorf("%s: the destination is oci://", arg)
+	}
+	host, path, hasPath := strings.Cut(rest, "/")
+	bare := !hasPath || len(path) == 0
+	switch {
+	case len(repository) == 0 && bare:
+		return "", fmt.Errorf("%s names no repository, and the pack file has none", arg)
+	case len(repository) == 0:
+		return arg, nil
+	case bare:
+		return reference.OciScheme.String() + host + "/" + repository, nil
+	case path != repository:
+		return "", fmt.Errorf("%s, but the pack file says repository %s", arg, repository)
+	}
+	return arg, nil
 }
 
 func remoteClientFromCommandArguments(cmd *cobra.Command, ref string) (registry.Resolver, error) {

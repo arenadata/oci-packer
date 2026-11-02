@@ -7,7 +7,9 @@ container registry.
 oci-packer -f <pack-file> [flags] <oci://registry.example.com/repo:tag>
 ```
 
-`<reference>` is the push destination and must use the `oci://` scheme.
+`<reference>` is the push destination and must use the `oci://` scheme. When the pack file has `repository:`
+(`repo:tag`, no host), the argument names only the registry, `oci://registry.example.com`; an argument that names a
+repository too must say the same, or the command fails.
 
 ## What it does
 

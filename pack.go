@@ -82,6 +82,14 @@ func Validate(p Pack) error {
 		return err
 	}
 
+	if len(p.Repository) > 0 {
+		if _, err := reference.ParseItem(reference.OciScheme.String() + p.Repository); err != nil {
+			err = fmt.Errorf("repository: %w", err)
+			log.WithError(err).Error("repository validation failed")
+			return err
+		}
+	}
+
 	if err := validateMetadata(p); err != nil {
 		log.WithError(err).Error("metadata validation failed")
 		return err
