@@ -426,3 +426,29 @@ func TestProxyServeHTTPCacheMiss(t *testing.T) {
 		t.Errorf("Expected X-Cache: MISS, got %s", cacheHeader)
 	}
 }
+
+// Every file of an artifact goes into the cache under its own name: the second request for a file is that file.
+func TestProxyCachesEachFileUnderItsOwnName(t *testing.T) {
+	descs := []ocispecv1.Descriptor{
+		{Digest: "sha256:a", Size: 1, Annotations: map[string]string{ocispecv1.AnnotationTitle: "a"}},
+		{Digest: "sha256:b", Size: 1, Annotations: map[string]string{ocispecv1.AnnotationTitle: "b"}},
+	}
+	cache := NewMockCache()
+	proxy := &Proxy{
+		resolver: &MockResolver{fetchFunc: func(_ context.Context, ref reference.Reference) (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader([]byte(ref.Ref))), nil
+		}},
+		cache: cache,
+		conv:  defaultConverter,
+		fd: func(context.Context, registry.Resolver, reference.Reference, map[string]string) ([]ocispecv1.Descriptor, error) {
+			return descs, nil
+		},
+	}
+	for range 2 {
+		w := httptest.NewRecorder()
+		proxy.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/path/reference?title=a", nil))
+		if body, _ := io.ReadAll(w.Body); string(body) != "sha256:a" {
+			t.Errorf("file a = %s", body)
+		}
+	}
+}

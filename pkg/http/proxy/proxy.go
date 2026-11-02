@@ -100,6 +100,9 @@ func New(registryRef string, opts ...Option) (*Proxy, error) {
 		if proxy.insecure {
 			remoteOpts = append(remoteOpts, remote.WithInsecure())
 		}
+		if len(proxy.login) > 0 {
+			remoteOpts = append(remoteOpts, remote.WithCreds(proxy.login, proxy.password))
+		}
 		proxy.resolver, err = remote.NewRegistryClient(ref, remoteOpts...)
 	}
 	if err != nil {
@@ -156,11 +159,11 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	var found bool
 	for _, d := range descList {
 		if v, ok := d.Annotations[ocispecv1.AnnotationTitle]; ok {
-			var platform string
+			var filePlatform string
 			if d.Platform != nil {
-				platforms.FormatAll(*d.Platform)
+				filePlatform = platforms.FormatAll(*d.Platform)
 			}
-			p.cache.Set(referenceString, platform, title, d)
+			p.cache.Set(referenceString, filePlatform, v, d)
 
 			if v == title && !found {
 				desc = d
@@ -202,6 +205,7 @@ func httpError(w http.ResponseWriter, status int, errs ...error) {
 	}
 	if status > 0 {
 		http.Error(w, http.StatusText(status), status)
+		return
 	}
 
 	err := errs[0].Error()
