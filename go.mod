@@ -3,7 +3,7 @@ module github.com/arenadata/oci-packer
 go 1.26.6
 
 require (
-	github.com/arenadata/oci-packer/types v0.0.0
+	github.com/arenadata/oci-packer/types v1.0.0
 	github.com/containerd/containerd/v2 v2.4.2
 	github.com/containerd/log v0.2.0
 	github.com/containerd/platforms v1.0.0-rc.5
@@ -49,5 +49,3 @@ require (
 	google.golang.org/grpc v1.83.2 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
-
-replace github.com/arenadata/oci-packer/types v0.0.0 => ./types
